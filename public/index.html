@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LC LiveStream</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 24px 16px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #222;
+    }
+
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .header .brand {
+      font-size: 12px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 18px;
+      border-radius: 10px;
+      margin-bottom: 24px;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .status-bar.offline {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      color: #888;
+    }
+
+    .status-bar.live {
+      background: #1a0a0a;
+      border: 1px solid #c0392b;
+      color: #e74c3c;
+      animation: pulse-border 2s infinite;
+    }
+
+    @keyframes pulse-border {
+      0%, 100% { border-color: #c0392b; }
+      50% { border-color: #e74c3c; }
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .dot.off { background: #555; }
+    .dot.on { background: #e74c3c; animation: blink 1s infinite; }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .card {
+      background: #141414;
+      border: 1px solid #222;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+
+    .card h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #999;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      padding: 12px 14px;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      margin-bottom: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus {
+      border-color: #0095f6;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .checkbox-row input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #0095f6;
+    }
+
+    .checkbox-row label {
+      margin-bottom: 0;
+      font-size: 14px;
+      color: #ccc;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .btn-start {
+      background: #0095f6;
+      color: #fff;
+    }
+
+    .btn-start:hover { background: #0077cc; }
+    .btn-start:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+    .btn-stop {
+      background: #e74c3c;
+      color: #fff;
+    }
+
+    .btn-stop:hover { background: #c0392b; }
+
+    .btn-secondary {
+      background: #222;
+      color: #999;
+      font-size: 12px;
+      padding: 10px;
+      margin-top: 8px;
+    }
+
+    .btn-secondary:hover { background: #333; color: #ccc; }
+
+    .logs {
+      background: #0a0a0a;
+      border: 1px solid #222;
+      border-radius: 8px;
+      padding: 14px;
+      max-height: 240px;
+      overflow-y: auto;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      color: #666;
+    }
+
+    .logs .log-entry { margin-bottom: 2px; }
+    .logs .log-entry.error { color: #e74c3c; }
+    .logs .log-entry.success { color: #2ecc71; }
+
+    .uptime {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+      margin-top: 4px;
+    }
+
+    .help {
+      font-size: 12px;
+      color: #555;
+      margin-top: 8px;
+      line-height: 1.5;
+    }
+
+    .login-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 80vh;
+      gap: 16px;
+    }
+
+    .login-screen h1 { font-size: 24px; color: #fff; }
+    .login-screen input { max-width: 300px; text-align: center; }
+    .login-screen .btn { max-width: 300px; }
+  </style>
+</head>
+<body>
+  <!-- Login -->
+  <div id="login" class="container login-screen">
+    <h1>LC LiveStream</h1>
+    <p style="color: #666; font-size: 13px;">Simulive para Instagram</p>
+    <input type="password" id="adminKey" placeholder="Senha de acesso" onkeydown="if(event.key==='Enter') doLogin()">
+    <button class="btn btn-start" onclick="doLogin()" style="max-width:300px">Entrar</button>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard" class="container" style="display:none">
+    <div class="header">
+      <div>
+        <h1>LC LiveStream</h1>
+        <span class="brand">LC Turismo</span>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div id="statusBar" class="status-bar offline">
+      <div class="dot off" id="statusDot"></div>
+      <span id="statusText">Offline</span>
+    </div>
+
+    <!-- Stream Controls -->
+    <div id="startPanel" class="card">
+      <h2>Nova Live</h2>
+
+      <label>Stream Key do Instagram</label>
+      <input type="password" id="streamKey" placeholder="Cole o stream key do Live Producer">
+
+      <label>URL do video (Google Drive)</label>
+      <input type="text" id="videoUrl" placeholder="https://drive.google.com/file/d/.../view">
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="loop">
+        <label for="loop">Repetir video em loop</label>
+      </div>
+
+      <button class="btn btn-start" id="btnStart" onclick="startStream()">
+        Iniciar Live
+      </button>
+
+      <p class="help">
+        1. Va em instagram.com &rarr; Criar &rarr; Live<br>
+        2. Copie o Stream Key<br>
+        3. Cole aqui, adicione o video e clique Iniciar<br>
+        4. Volte no Instagram e clique "Go Live"
+      </p>
+    </div>
+
+    <!-- Live Panel (shown when streaming) -->
+    <div id="livePanel" class="card" style="display:none">
+      <h2>Ao Vivo</h2>
+      <div class="uptime" id="uptime">00:00:00</div>
+      <div style="margin-top: 16px;">
+        <button class="btn btn-stop" onclick="stopStream()">Parar Live</button>
+      </div>
+    </div>
+
+    <!-- Logs -->
+    <div class="card">
+      <h2>Logs</h2>
+      <div class="logs" id="logsContainer">
+        <div class="log-entry">Aguardando...</div>
+      </div>
+      <button class="btn btn-secondary" onclick="clearCache()">Limpar cache de videos</button>
+    </div>
+  </div>
+
+  <script>
+    let KEY = '';
+    let pollInterval = null;
+    let uptimeInterval = null;
+    let streamStartTime = null;
+
+    function doLogin() {
+      KEY = document.getElementById('adminKey').value;
+      if (!KEY) return;
+
+      // Test the key
+      fetch('/api/stream/status?key=' + KEY)
+        .then(r => {
+          if (r.status === 401) {
+            alert('Senha incorreta');
+            return;
+          }
+          document.getElementById('login').style.display = 'none';
+          document.getElementById('dashboard').style.display = 'block';
+          startPolling();
+          fetchLogs();
+        })
+        .catch(() => alert('Erro de conexao'));
+    }
+
+    function apiHeaders() {
+      return { 'Content-Type': 'application/json', 'X-Admin-Key': KEY };
+    }
+
+    async function startStream() {
+      const streamKey = document.getElementById('streamKey').value.trim();
+      const videoUrl = document.getElementById('videoUrl').value.trim();
+      const loop = document.getElementById('loop').checked;
+
+      if (!streamKey || !videoUrl) {
+        alert('Preencha o Stream Key e a URL do video');
+        return;
+      }
+
+      const btn = document.getElementById('btnStart');
+      btn.disabled = true;
+      btn.textContent = 'Baixando video e iniciando...';
+
+      try {
+        const res = await fetch('/api/stream/start', {
+          method: 'POST',
+          headers: apiHeaders(),
+          body: JSON.stringify({ streamKey, videoUrl, loop })
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+          alert('Erro: ' + data.error);
+          btn.disabled = false;
+          btn.textContent = 'Iniciar Live';
+          return;
+        }
+
+        fetchLogs();
+      } catch (e) {
+        alert('Erro de conexao');
+        btn.disabled = false;
+        btn.textContent = 'Iniciar Live';
+      }
+    }
+
+    async function stopStream() {
+      if (!confirm('Parar a live?')) return;
+
+      await fetch('/api/stream/stop', {
+        method: 'POST',
+        headers: apiHeaders()
+      });
+
+      fetchLogs();
+    }
+
+    async function clearCache() {
+      if (!confirm('Remover videos em cache?')) return;
+
+      const res = await fetch('/api/cache/clear', {
+        method: 'POST',
+        headers: apiHeaders()
+      });
+
+      const data = await res.json();
+      alert(`${data.removed} arquivo(s) removido(s)`);
+    }
+
+    function updateUI(status) {
+      const bar = document.getElementById('statusBar');
+      const dot = document.getElementById('statusDot');
+      const text = document.getElementById('statusText');
+      const startPanel = document.getElementById('startPanel');
+      const livePanel = document.getElementById('livePanel');
+      const btn = document.getElementById('btnStart');
+
+      if (status.streaming) {
+        bar.className = 'status-bar live';
+        dot.className = 'dot on';
+        text.textContent = 'AO VIVO';
+        startPanel.style.display = 'none';
+        livePanel.style.display = 'block';
+
+        streamStartTime = new Date(status.startedAt);
+        if (!uptimeInterval) {
+          uptimeInterval = setInterval(updateUptime, 1000);
+        }
+      } else {
+        bar.className = 'status-bar offline';
+        dot.className = 'dot off';
+        text.textContent = 'Offline';
+        startPanel.style.display = 'block';
+        livePanel.style.display = 'none';
+        btn.disabled = false;
+        btn.textContent = 'Iniciar Live';
+
+        streamStartTime = null;
+        if (uptimeInterval) {
+          clearInterval(uptimeInterval);
+          uptimeInterval = null;
+        }
+        document.getElementById('uptime').textContent = '00:00:00';
+      }
+    }
+
+    function updateUptime() {
+      if (!streamStartTime) return;
+      const diff = Math.floor((Date.now() - streamStartTime.getTime()) / 1000);
+      const h = String(Math.floor(diff / 3600)).padStart(2, '0');
+      const m = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
+      const s = String(diff % 60).padStart(2, '0');
+      document.getElementById('uptime').textContent = `${h}:${m}:${s}`;
+    }
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/stream/status?key=' + KEY);
+        const data = await res.json();
+        updateUI(data);
+      } catch (e) {}
+    }
+
+    async function fetchLogs() {
+      try {
+        const res = await fetch('/api/logs?key=' + KEY);
+        const data = await res.json();
+        const container = document.getElementById('logsContainer');
+
+        container.innerHTML = data.logs.map(l => {
+          let cls = 'log-entry';
+          if (l.toLowerCase().includes('error')) cls += ' error';
+          if (l.includes('complete') || l.includes('started')) cls += ' success';
+          return `<div class="${cls}">${l}</div>`;
+        }).join('');
+
+        container.scrollTop = container.scrollHeight;
+      } catch (e) {}
+    }
+
+    function startPolling() {
+      fetchStatus();
+      pollInterval = setInterval(() => {
+        fetchStatus();
+        fetchLogs();
+      }, 3000);
+    }
+
+    // Auto-login if key in URL hash
+    if (window.location.hash) {
+      document.getElementById('adminKey').value = window.location.hash.slice(1);
+      doLogin();
+    }
+  </script>
+</body>
+</html>

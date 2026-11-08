@@ -1,0 +1,13 @@
+{
+  "name": "lc-livestream",
+  "version": "1.0.0",
+  "description": "LC Turismo - Simulive Instagram Streamer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "uuid": "^9.0.0"
+  }
+}
