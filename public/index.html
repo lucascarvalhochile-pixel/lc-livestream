@@ -111,7 +111,7 @@
       font-weight: 500;
     }
 
-    input[type="text"], input[type="password"] {
+    input[type="text"], input[type="password"], textarea {
       width: 100%;
       padding: 12px 14px;
       background: #0a0a0a;
@@ -122,9 +122,15 @@
       margin-bottom: 14px;
       outline: none;
       transition: border-color 0.2s;
+      font-family: inherit;
     }
 
-    input:focus {
+    textarea {
+      resize: vertical;
+      min-height: 44px;
+    }
+
+    input:focus, textarea:focus {
       border-color: #0095f6;
     }
 
@@ -259,14 +265,17 @@
     <div id="startPanel" class="card">
       <h2>Nova Live</h2>
 
-      <label>Stream Key do Instagram</label>
-      <input type="password" id="streamKey" placeholder="Cole o stream key do Live Producer">
+      <label>RTMP Server URL</label>
+      <input type="text" id="streamUrl" placeholder="rtmps://edgetee-upload-...fbcdn.net:443/rtmp/">
+
+      <label>Stream Key</label>
+      <textarea id="streamKey" rows="2" placeholder="Cole o stream key completo do Live Producer"></textarea>
 
       <label>URL do video (Google Drive)</label>
       <input type="text" id="videoUrl" placeholder="https://drive.google.com/file/d/.../view">
 
       <div class="checkbox-row">
-        <input type="checkbox" id="loop">
+        <input type="checkbox" id="loop" checked>
         <label for="loop">Repetir video em loop</label>
       </div>
 
@@ -275,10 +284,11 @@
       </button>
 
       <p class="help">
-        1. Va em instagram.com &rarr; Criar &rarr; Live<br>
-        2. Copie o Stream Key<br>
-        3. Cole aqui, adicione o video e clique Iniciar<br>
-        4. Volte no Instagram e clique "Go Live"
+        1. Va em instagram.com &rarr; Criar &rarr; Live Video<br>
+        2. Escolha "Streaming software" ou RTMP<br>
+        3. Copie a Server URL e o Stream Key<br>
+        4. Cole aqui, adicione o video e clique Iniciar<br>
+        5. Quando o preview aparecer no Instagram, clique "Go Live"
       </p>
     </div>
 
@@ -311,7 +321,6 @@
       KEY = document.getElementById('adminKey').value;
       if (!KEY) return;
 
-      // Test the key
       fetch('/api/stream/status?key=' + KEY)
         .then(r => {
           if (r.status === 401) {
@@ -331,6 +340,7 @@
     }
 
     async function startStream() {
+      const streamUrl = document.getElementById('streamUrl').value.trim();
       const streamKey = document.getElementById('streamKey').value.trim();
       const videoUrl = document.getElementById('videoUrl').value.trim();
       const loop = document.getElementById('loop').checked;
@@ -348,7 +358,7 @@
         const res = await fetch('/api/stream/start', {
           method: 'POST',
           headers: apiHeaders(),
-          body: JSON.stringify({ streamKey, videoUrl, loop })
+          body: JSON.stringify({ streamUrl, streamKey, videoUrl, loop })
         });
 
         const data = await res.json();

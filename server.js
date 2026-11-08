@@ -41,18 +41,10 @@ function auth(req, res, next) {
 
 // Extract Google Drive file ID from various URL formats
 function extractDriveFileId(url) {
-  // Format: https://drive.google.com/file/d/FILE_ID/view
   let match = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
   if (match) return match[1];
-
-  // Format: https://drive.google.com/open?id=FILE_ID
   match = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
   if (match) return match[1];
-
-  // Format: https://drive.google.com/uc?export=download&id=FILE_ID
-  match = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-  if (match) return match[1];
-
   return null;
 }
 
@@ -76,7 +68,6 @@ function downloadFromDrive(fileId, destPath) {
       protocol.get(url, {
         headers: { 'User-Agent': 'Mozilla/5.0' }
       }, (response) => {
-        // Handle redirects
         if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
           log(`Redirect to: ${response.headers.location}`);
           doDownload(response.headers.location, redirectCount + 1);
@@ -106,7 +97,6 @@ function downloadFromDrive(fileId, destPath) {
           const stats = fs.statSync(destPath);
           log(`Download complete: ${Math.round(stats.size / 1024 / 1024)}MB`);
 
-          // Check if we got an HTML page (virus scan warning) instead of video
           if (stats.size < 100000) {
             const content = fs.readFileSync(destPath, 'utf8');
             if (content.includes('</html>') || content.includes('virus scan')) {
@@ -134,7 +124,7 @@ app.post('/api/stream/start', auth, async (req, res) => {
     return res.status(400).json({ error: 'A stream is already running. Stop it first.' });
   }
 
-  const { streamKey, videoUrl, loop } = req.body;
+  const { streamUrl, streamKey, videoUrl, loop } = req.body;
 
   if (!streamKey || !videoUrl) {
     return res.status(400).json({ error: 'streamKey and videoUrl are required.' });
@@ -146,20 +136,16 @@ app.post('/api/stream/start', auth, async (req, res) => {
     const fileId = extractDriveFileId(videoUrl);
 
     if (fileId) {
-      // Google Drive URL
       videoPath = path.join(VIDEOS_DIR, `${fileId}.mp4`);
-
-      // Check if already downloaded
       if (fs.existsSync(videoPath)) {
         log(`Video already cached: ${videoPath}`);
       } else {
         await downloadFromDrive(fileId, videoPath);
       }
     } else if (videoUrl.startsWith('http')) {
-      // Direct URL - download first
       const filename = `${uuidv4()}.mp4`;
       videoPath = path.join(VIDEOS_DIR, filename);
-      await downloadFromDrive(videoUrl, videoPath); // reuse download logic
+      await downloadFromDrive(videoUrl, videoPath);
     } else {
       return res.status(400).json({ error: 'Invalid video URL. Use a Google Drive share link.' });
     }
@@ -171,14 +157,17 @@ app.post('/api/stream/start', auth, async (req, res) => {
       return res.status(400).json({ error: 'Downloaded file is not a valid video.' });
     }
 
-    // Build FFmpeg command
-    const rtmpUrl = `rtmps://live-upload.instagram.com:443/rtmp/${streamKey}`;
+    // Build RTMP URL: use custom streamUrl if provided, otherwise default
+    const baseUrl = streamUrl && streamUrl.trim()
+      ? streamUrl.trim().replace(/\/$/, '')
+      : 'rtmps://live-upload.instagram.com:443/rtmp';
+    const rtmpUrl = `${baseUrl}/${streamKey}`;
 
     const inputArgs = loop ? ['-stream_loop', '-1'] : [];
 
     const ffmpegArgs = [
       ...inputArgs,
-      '-re',                          // Read at native framerate
+      '-re',
       '-i', videoPath,
       '-c:v', 'libx264',
       '-preset', 'veryfast',
@@ -194,6 +183,7 @@ app.post('/api/stream/start', auth, async (req, res) => {
     ];
 
     log(`Starting stream to Instagram...`);
+    log(`RTMP: ${baseUrl}/***`);
     log(`Video: ${videoPath}`);
     log(`Loop: ${loop ? 'yes' : 'no'}`);
 
@@ -211,7 +201,6 @@ app.post('/api/stream/start', auth, async (req, res) => {
 
     ffmpeg.stderr.on('data', (data) => {
       const line = data.toString().trim();
-      // Only log important lines, not every frame
       if (line.includes('Error') || line.includes('error') ||
           line.includes('Stream mapping') || line.includes('Output #') ||
           line.includes('frame=') && Math.random() < 0.01) {
@@ -258,7 +247,6 @@ app.post('/api/stream/stop', auth, (req, res) => {
   log('Stopping stream...');
   currentStream.process.kill('SIGTERM');
 
-  // Force kill after 5s
   setTimeout(() => {
     if (currentStream) {
       currentStream.process.kill('SIGKILL');
