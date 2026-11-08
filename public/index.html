@@ -6,239 +6,55 @@
   <title>LC LiveStream</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0a0a0a;
-      color: #e0e0e0;
-      min-height: 100vh;
-    }
-
-    .container {
-      max-width: 680px;
-      margin: 0 auto;
-      padding: 24px 16px;
-    }
-
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 32px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid #222;
-    }
-
-    .header h1 {
-      font-size: 20px;
-      font-weight: 700;
-      color: #fff;
-    }
-
-    .header .brand {
-      font-size: 12px;
-      color: #666;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-
-    .status-bar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 14px 18px;
-      border-radius: 10px;
-      margin-bottom: 24px;
-      font-weight: 600;
-      font-size: 14px;
-    }
-
-    .status-bar.offline {
-      background: #1a1a1a;
-      border: 1px solid #333;
-      color: #888;
-    }
-
-    .status-bar.live {
-      background: #1a0a0a;
-      border: 1px solid #c0392b;
-      color: #e74c3c;
-      animation: pulse-border 2s infinite;
-    }
-
-    @keyframes pulse-border {
-      0%, 100% { border-color: #c0392b; }
-      50% { border-color: #e74c3c; }
-    }
-
-    .dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; }
+    .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; padding-bottom: 16px; border-bottom: 1px solid #222; }
+    .header h1 { font-size: 20px; font-weight: 700; color: #fff; }
+    .header .brand { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+    .header .account { font-size: 13px; color: #0095f6; font-weight: 600; }
+    .status-bar { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-radius: 10px; margin-bottom: 24px; font-weight: 600; font-size: 14px; }
+    .status-bar.offline { background: #1a1a1a; border: 1px solid #333; color: #888; }
+    .status-bar.live { background: #1a0a0a; border: 1px solid #c0392b; color: #e74c3c; animation: pulse-border 2s infinite; }
+    @keyframes pulse-border { 0%, 100% { border-color: #c0392b; } 50% { border-color: #e74c3c; } }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
     .dot.off { background: #555; }
     .dot.on { background: #e74c3c; animation: blink 1s infinite; }
-
-    @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.3; }
-    }
-
-    .card {
-      background: #141414;
-      border: 1px solid #222;
-      border-radius: 12px;
-      padding: 24px;
-      margin-bottom: 16px;
-    }
-
-    .card h2 {
-      font-size: 14px;
-      font-weight: 600;
-      color: #999;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 16px;
-    }
-
-    label {
-      display: block;
-      font-size: 13px;
-      color: #888;
-      margin-bottom: 6px;
-      font-weight: 500;
-    }
-
-    input[type="text"], input[type="password"], textarea {
-      width: 100%;
-      padding: 12px 14px;
-      background: #0a0a0a;
-      border: 1px solid #333;
-      border-radius: 8px;
-      color: #fff;
-      font-size: 14px;
-      margin-bottom: 14px;
-      outline: none;
-      transition: border-color 0.2s;
-      font-family: inherit;
-    }
-
-    textarea {
-      resize: vertical;
-      min-height: 44px;
-    }
-
-    input:focus, textarea:focus {
-      border-color: #0095f6;
-    }
-
-    .checkbox-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 14px;
-    }
-
-    .checkbox-row input[type="checkbox"] {
-      width: 16px;
-      height: 16px;
-      accent-color: #0095f6;
-    }
-
-    .checkbox-row label {
-      margin-bottom: 0;
-      font-size: 14px;
-      color: #ccc;
-    }
-
-    .btn {
-      width: 100%;
-      padding: 14px;
-      border: none;
-      border-radius: 10px;
-      font-size: 15px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.2s;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .btn-start {
-      background: #0095f6;
-      color: #fff;
-    }
-
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .card { background: #141414; border: 1px solid #222; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+    .card h2 { font-size: 14px; font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+    label { display: block; font-size: 13px; color: #888; margin-bottom: 6px; font-weight: 500; }
+    input[type="text"], input[type="password"], textarea { width: 100%; padding: 12px 14px; background: #0a0a0a; border: 1px solid #333; border-radius: 8px; color: #fff; font-size: 14px; margin-bottom: 14px; outline: none; transition: border-color 0.2s; font-family: inherit; }
+    textarea { resize: vertical; min-height: 44px; }
+    input:focus, textarea:focus { border-color: #0095f6; }
+    .checkbox-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+    .checkbox-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: #0095f6; }
+    .checkbox-row label { margin-bottom: 0; font-size: 14px; color: #ccc; }
+    .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
+    .btn-start { background: #0095f6; color: #fff; }
     .btn-start:hover { background: #0077cc; }
     .btn-start:disabled { background: #333; color: #666; cursor: not-allowed; }
-
-    .btn-stop {
-      background: #e74c3c;
-      color: #fff;
-    }
-
+    .btn-stop { background: #e74c3c; color: #fff; }
     .btn-stop:hover { background: #c0392b; }
-
-    .btn-secondary {
-      background: #222;
-      color: #999;
-      font-size: 12px;
-      padding: 10px;
-      margin-top: 8px;
-    }
-
+    .btn-secondary { background: #222; color: #999; font-size: 12px; padding: 10px; margin-top: 8px; }
     .btn-secondary:hover { background: #333; color: #ccc; }
-
-    .logs {
-      background: #0a0a0a;
-      border: 1px solid #222;
-      border-radius: 8px;
-      padding: 14px;
-      max-height: 240px;
-      overflow-y: auto;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 11px;
-      line-height: 1.6;
-      color: #666;
-    }
-
+    .logs { background: #0a0a0a; border: 1px solid #222; border-radius: 8px; padding: 14px; max-height: 240px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.6; color: #666; }
     .logs .log-entry { margin-bottom: 2px; }
     .logs .log-entry.error { color: #e74c3c; }
     .logs .log-entry.success { color: #2ecc71; }
-
-    .uptime {
-      font-size: 28px;
-      font-weight: 700;
-      color: #fff;
-      font-variant-numeric: tabular-nums;
-      margin-top: 4px;
-    }
-
-    .help {
-      font-size: 12px;
-      color: #555;
-      margin-top: 8px;
-      line-height: 1.5;
-    }
-
-    .login-screen {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 80vh;
-      gap: 16px;
-    }
-
+    .uptime { font-size: 28px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; margin-top: 4px; }
+    .help { font-size: 12px; color: #555; margin-top: 8px; line-height: 1.5; }
+    .prefilled { border-color: #2ecc71 !important; }
+    .prefilled-label { color: #2ecc71; font-size: 11px; margin-bottom: 4px; }
+    .login-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80vh; gap: 16px; }
     .login-screen h1 { font-size: 24px; color: #fff; }
     .login-screen input { max-width: 300px; text-align: center; }
     .login-screen .btn { max-width: 300px; }
+    .toggle-details { font-size: 12px; color: #666; cursor: pointer; margin-bottom: 10px; }
+    .toggle-details:hover { color: #999; }
+    .details-hidden { display: none; }
   </style>
 </head>
 <body>
-  <!-- Login -->
   <div id="login" class="container login-screen">
     <h1>LC LiveStream</h1>
     <p style="color: #666; font-size: 13px;">Simulive para Instagram</p>
@@ -246,30 +62,22 @@
     <button class="btn btn-start" onclick="doLogin()" style="max-width:300px">Entrar</button>
   </div>
 
-  <!-- Dashboard -->
   <div id="dashboard" class="container" style="display:none">
     <div class="header">
       <div>
         <h1>LC LiveStream</h1>
         <span class="brand">LC Turismo</span>
       </div>
+      <span class="account" id="accountName"></span>
     </div>
 
-    <!-- Status -->
     <div id="statusBar" class="status-bar offline">
       <div class="dot off" id="statusDot"></div>
       <span id="statusText">Offline</span>
     </div>
 
-    <!-- Stream Controls -->
     <div id="startPanel" class="card">
       <h2>Nova Live</h2>
-
-      <label>RTMP Server URL</label>
-      <input type="text" id="streamUrl" placeholder="rtmps://edgetee-upload-...fbcdn.net:443/rtmp/">
-
-      <label>Stream Key</label>
-      <textarea id="streamKey" rows="2" placeholder="Cole o stream key completo do Live Producer"></textarea>
 
       <label>URL do video (Google Drive)</label>
       <input type="text" id="videoUrl" placeholder="https://drive.google.com/file/d/.../view">
@@ -279,20 +87,26 @@
         <label for="loop">Repetir video em loop</label>
       </div>
 
+      <div class="toggle-details" onclick="toggleDetails()" id="toggleBtn">Mostrar config RTMP</div>
+      <div id="rtmpDetails" class="details-hidden">
+        <div id="prefilledNote" class="prefilled-label" style="display:none">Chave persistente carregada automaticamente</div>
+        <label>RTMP Server URL</label>
+        <input type="text" id="streamUrl" placeholder="rtmps://...fbcdn.net:443/rtmp/">
+        <label>Stream Key</label>
+        <textarea id="streamKey" rows="2" placeholder="Cole a chave de stream"></textarea>
+      </div>
+
       <button class="btn btn-start" id="btnStart" onclick="startStream()">
         Iniciar Live
       </button>
 
       <p class="help">
-        1. Va em instagram.com &rarr; Criar &rarr; Live Video<br>
-        2. Escolha "Streaming software" ou RTMP<br>
-        3. Copie a Server URL e o Stream Key<br>
-        4. Cole aqui, adicione o video e clique Iniciar<br>
-        5. Quando o preview aparecer no Instagram, clique "Go Live"
+        1. No Instagram (desktop): Criar &rarr; Video ao vivo &rarr; Avancar<br>
+        2. Aqui: cole o video do Drive e clique Iniciar<br>
+        3. No Instagram: clique "Transmitir ao vivo" quando o preview aparecer
       </p>
     </div>
 
-    <!-- Live Panel (shown when streaming) -->
     <div id="livePanel" class="card" style="display:none">
       <h2>Ao Vivo</h2>
       <div class="uptime" id="uptime">00:00:00</div>
@@ -301,7 +115,6 @@
       </div>
     </div>
 
-    <!-- Logs -->
     <div class="card">
       <h2>Logs</h2>
       <div class="logs" id="logsContainer">
@@ -316,19 +129,17 @@
     let pollInterval = null;
     let uptimeInterval = null;
     let streamStartTime = null;
+    let hasDefaults = false;
 
     function doLogin() {
       KEY = document.getElementById('adminKey').value;
       if (!KEY) return;
-
       fetch('/api/stream/status?key=' + KEY)
         .then(r => {
-          if (r.status === 401) {
-            alert('Senha incorreta');
-            return;
-          }
+          if (r.status === 401) { alert('Senha incorreta'); return; }
           document.getElementById('login').style.display = 'none';
           document.getElementById('dashboard').style.display = 'block';
+          loadDefaults();
           startPolling();
           fetchLogs();
         })
@@ -339,16 +150,46 @@
       return { 'Content-Type': 'application/json', 'X-Admin-Key': KEY };
     }
 
+    async function loadDefaults() {
+      try {
+        const res = await fetch('/api/defaults?key=' + KEY);
+        const data = await res.json();
+        if (data.streamUrl) {
+          document.getElementById('streamUrl').value = data.streamUrl;
+          document.getElementById('streamUrl').classList.add('prefilled');
+        }
+        if (data.streamKey) {
+          document.getElementById('streamKey').value = data.streamKey;
+          document.getElementById('streamKey').classList.add('prefilled');
+          hasDefaults = true;
+          document.getElementById('prefilledNote').style.display = 'block';
+        }
+        if (data.account) {
+          document.getElementById('accountName').textContent = '@' + data.account;
+        }
+      } catch (e) {}
+    }
+
+    function toggleDetails() {
+      const details = document.getElementById('rtmpDetails');
+      const btn = document.getElementById('toggleBtn');
+      if (details.classList.contains('details-hidden')) {
+        details.classList.remove('details-hidden');
+        btn.textContent = 'Esconder config RTMP';
+      } else {
+        details.classList.add('details-hidden');
+        btn.textContent = 'Mostrar config RTMP';
+      }
+    }
+
     async function startStream() {
       const streamUrl = document.getElementById('streamUrl').value.trim();
       const streamKey = document.getElementById('streamKey').value.trim();
       const videoUrl = document.getElementById('videoUrl').value.trim();
       const loop = document.getElementById('loop').checked;
 
-      if (!streamKey || !videoUrl) {
-        alert('Preencha o Stream Key e a URL do video');
-        return;
-      }
+      if (!streamKey) { alert('Chave de stream nao encontrada. Clique em "Mostrar config RTMP" e preencha.'); return; }
+      if (!videoUrl) { alert('Cole a URL do video do Google Drive'); return; }
 
       const btn = document.getElementById('btnStart');
       btn.disabled = true;
@@ -360,16 +201,13 @@
           headers: apiHeaders(),
           body: JSON.stringify({ streamUrl, streamKey, videoUrl, loop })
         });
-
         const data = await res.json();
-
         if (data.error) {
           alert('Erro: ' + data.error);
           btn.disabled = false;
           btn.textContent = 'Iniciar Live';
           return;
         }
-
         fetchLogs();
       } catch (e) {
         alert('Erro de conexao');
@@ -380,23 +218,13 @@
 
     async function stopStream() {
       if (!confirm('Parar a live?')) return;
-
-      await fetch('/api/stream/stop', {
-        method: 'POST',
-        headers: apiHeaders()
-      });
-
+      await fetch('/api/stream/stop', { method: 'POST', headers: apiHeaders() });
       fetchLogs();
     }
 
     async function clearCache() {
       if (!confirm('Remover videos em cache?')) return;
-
-      const res = await fetch('/api/cache/clear', {
-        method: 'POST',
-        headers: apiHeaders()
-      });
-
+      const res = await fetch('/api/cache/clear', { method: 'POST', headers: apiHeaders() });
       const data = await res.json();
       alert(`${data.removed} arquivo(s) removido(s)`);
     }
@@ -415,11 +243,8 @@
         text.textContent = 'AO VIVO';
         startPanel.style.display = 'none';
         livePanel.style.display = 'block';
-
         streamStartTime = new Date(status.startedAt);
-        if (!uptimeInterval) {
-          uptimeInterval = setInterval(updateUptime, 1000);
-        }
+        if (!uptimeInterval) { uptimeInterval = setInterval(updateUptime, 1000); }
       } else {
         bar.className = 'status-bar offline';
         dot.className = 'dot off';
@@ -428,12 +253,8 @@
         livePanel.style.display = 'none';
         btn.disabled = false;
         btn.textContent = 'Iniciar Live';
-
         streamStartTime = null;
-        if (uptimeInterval) {
-          clearInterval(uptimeInterval);
-          uptimeInterval = null;
-        }
+        if (uptimeInterval) { clearInterval(uptimeInterval); uptimeInterval = null; }
         document.getElementById('uptime').textContent = '00:00:00';
       }
     }
@@ -460,27 +281,21 @@
         const res = await fetch('/api/logs?key=' + KEY);
         const data = await res.json();
         const container = document.getElementById('logsContainer');
-
         container.innerHTML = data.logs.map(l => {
           let cls = 'log-entry';
           if (l.toLowerCase().includes('error')) cls += ' error';
           if (l.includes('complete') || l.includes('started')) cls += ' success';
           return `<div class="${cls}">${l}</div>`;
         }).join('');
-
         container.scrollTop = container.scrollHeight;
       } catch (e) {}
     }
 
     function startPolling() {
       fetchStatus();
-      pollInterval = setInterval(() => {
-        fetchStatus();
-        fetchLogs();
-      }, 3000);
+      pollInterval = setInterval(() => { fetchStatus(); fetchLogs(); }, 3000);
     }
 
-    // Auto-login if key in URL hash
     if (window.location.hash) {
       document.getElementById('adminKey').value = window.location.hash.slice(1);
       doLogin();

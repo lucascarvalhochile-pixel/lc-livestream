@@ -14,12 +14,15 @@ const PORT = process.env.PORT || 3000;
 const ADMIN_KEY = process.env.ADMIN_KEY || 'lc-live-2026';
 const VIDEOS_DIR = '/tmp/videos';
 
-// Ensure videos dir exists
+// Default stream config from env
+const DEFAULT_STREAM_URL = process.env.DEFAULT_STREAM_URL || '';
+const DEFAULT_STREAM_KEY = process.env.DEFAULT_STREAM_KEY || '';
+const DEFAULT_ACCOUNT = process.env.DEFAULT_ACCOUNT || '';
+
 if (!fs.existsSync(VIDEOS_DIR)) {
   fs.mkdirSync(VIDEOS_DIR, { recursive: true });
 }
 
-// State
 let currentStream = null;
 let streamLogs = [];
 
@@ -30,7 +33,6 @@ function log(msg) {
   console.log(entry);
 }
 
-// Auth middleware
 function auth(req, res, next) {
   const key = req.headers['x-admin-key'] || req.query.key;
   if (key !== ADMIN_KEY) {
@@ -39,7 +41,6 @@ function auth(req, res, next) {
   next();
 }
 
-// Extract Google Drive file ID from various URL formats
 function extractDriveFileId(url) {
   let match = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
   if (match) return match[1];
@@ -48,40 +49,22 @@ function extractDriveFileId(url) {
   return null;
 }
 
-// Download file from Google Drive (handles large file confirmation)
 function downloadFromDrive(fileId, destPath) {
   return new Promise((resolve, reject) => {
     const downloadUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t`;
-
     log(`Downloading from Drive: ${fileId}`);
-
     const file = fs.createWriteStream(destPath);
 
     function doDownload(url, redirectCount = 0) {
-      if (redirectCount > 5) {
-        reject(new Error('Too many redirects'));
-        return;
-      }
-
+      if (redirectCount > 5) { reject(new Error('Too many redirects')); return; }
       const protocol = url.startsWith('https') ? https : http;
-
-      protocol.get(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0' }
-      }, (response) => {
+      protocol.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (response) => {
         if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-          log(`Redirect to: ${response.headers.location}`);
-          doDownload(response.headers.location, redirectCount + 1);
-          return;
+          doDownload(response.headers.location, redirectCount + 1); return;
         }
-
-        if (response.statusCode !== 200) {
-          reject(new Error(`Download failed: HTTP ${response.statusCode}`));
-          return;
-        }
-
+        if (response.statusCode !== 200) { reject(new Error(`Download failed: HTTP ${response.statusCode}`)); return; }
         const totalBytes = parseInt(response.headers['content-length'] || '0', 10);
         let downloadedBytes = 0;
-
         response.on('data', (chunk) => {
           downloadedBytes += chunk.length;
           if (totalBytes > 0 && downloadedBytes % (10 * 1024 * 1024) < chunk.length) {
@@ -89,34 +72,33 @@ function downloadFromDrive(fileId, destPath) {
             log(`Download: ${pct}% (${Math.round(downloadedBytes / 1024 / 1024)}MB / ${Math.round(totalBytes / 1024 / 1024)}MB)`);
           }
         });
-
         response.pipe(file);
-
         file.on('finish', () => {
           file.close();
           const stats = fs.statSync(destPath);
           log(`Download complete: ${Math.round(stats.size / 1024 / 1024)}MB`);
-
           if (stats.size < 100000) {
             const content = fs.readFileSync(destPath, 'utf8');
             if (content.includes('</html>') || content.includes('virus scan')) {
-              reject(new Error('Google Drive blocked the download. Make sure the file sharing is set to "Anyone with the link".'));
-              return;
+              reject(new Error('Google Drive blocked the download. Make sure the file sharing is set to "Anyone with the link".')); return;
             }
           }
-
           resolve(destPath);
         });
-
-      }).on('error', (err) => {
-        fs.unlink(destPath, () => {});
-        reject(err);
-      });
+      }).on('error', (err) => { fs.unlink(destPath, () => {}); reject(err); });
     }
-
     doDownload(downloadUrl);
   });
 }
+
+// Defaults endpoint
+app.get('/api/defaults', auth, (req, res) => {
+  res.json({
+    streamUrl: DEFAULT_STREAM_URL,
+    streamKey: DEFAULT_STREAM_KEY,
+    account: DEFAULT_ACCOUNT
+  });
+});
 
 // Start streaming
 app.post('/api/stream/start', auth, async (req, res) => {
@@ -131,7 +113,6 @@ app.post('/api/stream/start', auth, async (req, res) => {
   }
 
   try {
-    // Determine video source
     let videoPath;
     const fileId = extractDriveFileId(videoUrl);
 
@@ -150,14 +131,12 @@ app.post('/api/stream/start', auth, async (req, res) => {
       return res.status(400).json({ error: 'Invalid video URL. Use a Google Drive share link.' });
     }
 
-    // Verify it's a valid video
     try {
       execSync(`ffprobe -v quiet -print_format json -show_format "${videoPath}"`);
     } catch (e) {
       return res.status(400).json({ error: 'Downloaded file is not a valid video.' });
     }
 
-    // Build RTMP URL: use custom streamUrl if provided, otherwise default
     const baseUrl = streamUrl && streamUrl.trim()
       ? streamUrl.trim().replace(/\/$/, '')
       : 'rtmps://live-upload.instagram.com:443/rtmp';
@@ -189,7 +168,6 @@ app.post('/api/stream/start', auth, async (req, res) => {
     log(`Loop: ${loop ? 'yes' : 'no'}`);
 
     const ffmpeg = spawn('ffmpeg', ffmpegArgs);
-
     const streamId = uuidv4().slice(0, 8);
 
     currentStream = {
@@ -219,15 +197,10 @@ app.post('/api/stream/start', auth, async (req, res) => {
       currentStream = null;
     });
 
-    // Wait a moment to see if it crashes immediately
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     if (currentStream) {
-      res.json({
-        success: true,
-        streamId,
-        message: 'Stream started! Video is being broadcast to Instagram.'
-      });
+      res.json({ success: true, streamId, message: 'Stream started! Video is being broadcast to Instagram.' });
     } else {
       res.status(500).json({ error: 'Stream failed to start. Check logs.' });
     }
@@ -239,31 +212,16 @@ app.post('/api/stream/start', auth, async (req, res) => {
   }
 });
 
-// Stop streaming
 app.post('/api/stream/stop', auth, (req, res) => {
-  if (!currentStream) {
-    return res.json({ message: 'No stream running.' });
-  }
-
+  if (!currentStream) { return res.json({ message: 'No stream running.' }); }
   log('Stopping stream...');
   currentStream.process.kill('SIGTERM');
-
-  setTimeout(() => {
-    if (currentStream) {
-      currentStream.process.kill('SIGKILL');
-      currentStream = null;
-    }
-  }, 5000);
-
+  setTimeout(() => { if (currentStream) { currentStream.process.kill('SIGKILL'); currentStream = null; } }, 5000);
   res.json({ success: true, message: 'Stream stopped.' });
 });
 
-// Stream status
 app.get('/api/stream/status', auth, (req, res) => {
-  if (!currentStream) {
-    return res.json({ streaming: false });
-  }
-
+  if (!currentStream) { return res.json({ streaming: false }); }
   res.json({
     streaming: true,
     id: currentStream.id,
@@ -274,12 +232,10 @@ app.get('/api/stream/status', auth, (req, res) => {
   });
 });
 
-// Logs
 app.get('/api/logs', auth, (req, res) => {
   res.json({ logs: streamLogs.slice(-100) });
 });
 
-// Cleanup cached videos
 app.post('/api/cache/clear', auth, (req, res) => {
   const files = fs.readdirSync(VIDEOS_DIR);
   files.forEach(f => fs.unlinkSync(path.join(VIDEOS_DIR, f)));
@@ -287,11 +243,11 @@ app.post('/api/cache/clear', auth, (req, res) => {
   res.json({ success: true, removed: files.length });
 });
 
-// Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', streaming: !!currentStream });
 });
 
 app.listen(PORT, () => {
   log(`LC LiveStream running on port ${PORT}`);
+  if (DEFAULT_ACCOUNT) log(`Default account: ${DEFAULT_ACCOUNT}`);
 });
