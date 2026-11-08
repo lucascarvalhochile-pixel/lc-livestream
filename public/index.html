@@ -17,41 +17,36 @@
     .status-bar.live { background: #1a0a0a; border: 1px solid #c0392b; color: #e74c3c; animation: pulse-border 2s infinite; }
     @keyframes pulse-border { 0%, 100% { border-color: #c0392b; } 50% { border-color: #e74c3c; } }
     .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-    .dot.off { background: #555; }
-    .dot.on { background: #e74c3c; animation: blink 1s infinite; }
+    .dot.off { background: #555; } .dot.on { background: #e74c3c; animation: blink 1s infinite; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     .card { background: #141414; border: 1px solid #222; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
     .card h2 { font-size: 14px; font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
     label { display: block; font-size: 13px; color: #888; margin-bottom: 6px; font-weight: 500; }
-    input[type="text"], input[type="password"], textarea { width: 100%; padding: 12px 14px; background: #0a0a0a; border: 1px solid #333; border-radius: 8px; color: #fff; font-size: 14px; margin-bottom: 14px; outline: none; transition: border-color 0.2s; font-family: inherit; }
+    input[type="text"], input[type="password"], textarea { width: 100%; padding: 12px 14px; background: #0a0a0a; border: 1px solid #333; border-radius: 8px; color: #fff; font-size: 14px; margin-bottom: 10px; outline: none; transition: border-color 0.2s; font-family: inherit; }
     textarea { resize: vertical; min-height: 44px; }
     input:focus, textarea:focus { border-color: #0095f6; }
     .checkbox-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
     .checkbox-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: #0095f6; }
     .checkbox-row label { margin-bottom: 0; font-size: 14px; color: #ccc; }
     .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
-    .btn-start { background: #0095f6; color: #fff; }
-    .btn-start:hover { background: #0077cc; }
-    .btn-start:disabled { background: #333; color: #666; cursor: not-allowed; }
-    .btn-stop { background: #e74c3c; color: #fff; }
-    .btn-stop:hover { background: #c0392b; }
-    .btn-secondary { background: #222; color: #999; font-size: 12px; padding: 10px; margin-top: 8px; }
-    .btn-secondary:hover { background: #333; color: #ccc; }
+    .btn-start { background: #0095f6; color: #fff; } .btn-start:hover { background: #0077cc; } .btn-start:disabled { background: #333; color: #666; cursor: not-allowed; }
+    .btn-stop { background: #e74c3c; color: #fff; } .btn-stop:hover { background: #c0392b; }
+    .btn-secondary { background: #222; color: #999; font-size: 12px; padding: 10px; margin-top: 8px; } .btn-secondary:hover { background: #333; color: #ccc; }
+    .btn-add { background: #1a1a1a; border: 1px dashed #444; color: #888; font-size: 13px; padding: 10px; margin-bottom: 14px; border-radius: 8px; cursor: pointer; } .btn-add:hover { border-color: #0095f6; color: #0095f6; }
+    .btn-remove { background: none; border: none; color: #666; font-size: 18px; cursor: pointer; padding: 4px 8px; position: absolute; right: 4px; top: 4px; } .btn-remove:hover { color: #e74c3c; }
+    .video-row { position: relative; display: flex; align-items: center; gap: 8px; }
+    .video-row input { flex: 1; margin-bottom: 8px; }
+    .video-row .num { font-size: 12px; color: #555; min-width: 20px; margin-bottom: 8px; }
     .logs { background: #0a0a0a; border: 1px solid #222; border-radius: 8px; padding: 14px; max-height: 240px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.6; color: #666; }
-    .logs .log-entry { margin-bottom: 2px; }
-    .logs .log-entry.error { color: #e74c3c; }
-    .logs .log-entry.success { color: #2ecc71; }
+    .logs .log-entry { margin-bottom: 2px; } .logs .log-entry.error { color: #e74c3c; } .logs .log-entry.success { color: #2ecc71; }
     .uptime { font-size: 28px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; margin-top: 4px; }
     .help { font-size: 12px; color: #555; margin-top: 8px; line-height: 1.5; }
-    .prefilled { border-color: #2ecc71 !important; }
-    .prefilled-label { color: #2ecc71; font-size: 11px; margin-bottom: 4px; }
+    .prefilled { border-color: #2ecc71 !important; } .prefilled-label { color: #2ecc71; font-size: 11px; margin-bottom: 4px; }
     .login-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80vh; gap: 16px; }
-    .login-screen h1 { font-size: 24px; color: #fff; }
-    .login-screen input { max-width: 300px; text-align: center; }
-    .login-screen .btn { max-width: 300px; }
-    .toggle-details { font-size: 12px; color: #666; cursor: pointer; margin-bottom: 10px; }
-    .toggle-details:hover { color: #999; }
+    .login-screen h1 { font-size: 24px; color: #fff; } .login-screen input { max-width: 300px; text-align: center; } .login-screen .btn { max-width: 300px; }
+    .toggle-details { font-size: 12px; color: #666; cursor: pointer; margin-bottom: 10px; } .toggle-details:hover { color: #999; }
     .details-hidden { display: none; }
+    .source-hint { font-size: 11px; color: #555; margin-bottom: 14px; }
   </style>
 </head>
 <body>
@@ -64,10 +59,7 @@
 
   <div id="dashboard" class="container" style="display:none">
     <div class="header">
-      <div>
-        <h1>LC LiveStream</h1>
-        <span class="brand">LC Turismo</span>
-      </div>
+      <div><h1>LC LiveStream</h1><span class="brand">LC Turismo</span></div>
       <span class="account" id="accountName"></span>
     </div>
 
@@ -79,12 +71,19 @@
     <div id="startPanel" class="card">
       <h2>Nova Live</h2>
 
-      <label>URL do video (Google Drive)</label>
-      <input type="text" id="videoUrl" placeholder="https://drive.google.com/file/d/.../view">
+      <label>Videos (Google Drive ou YouTube)</label>
+      <div class="source-hint">Cole URLs do Google Drive ou YouTube. Multiplos videos tocam em sequencia.</div>
+      <div id="videoList">
+        <div class="video-row">
+          <span class="num">1.</span>
+          <input type="text" placeholder="https://drive.google.com/file/d/... ou https://youtube.com/watch?v=...">
+        </div>
+      </div>
+      <button class="btn-add" onclick="addVideoField()">+ Adicionar video</button>
 
       <div class="checkbox-row">
         <input type="checkbox" id="loop" checked>
-        <label for="loop">Repetir video em loop</label>
+        <label for="loop">Repetir playlist em loop</label>
       </div>
 
       <div class="toggle-details" onclick="toggleDetails()" id="toggleBtn">Mostrar config RTMP</div>
@@ -96,13 +95,11 @@
         <textarea id="streamKey" rows="2" placeholder="Cole a chave de stream"></textarea>
       </div>
 
-      <button class="btn btn-start" id="btnStart" onclick="startStream()">
-        Iniciar Live
-      </button>
+      <button class="btn btn-start" id="btnStart" onclick="startStream()">Iniciar Live</button>
 
       <p class="help">
         1. No Instagram (desktop): Criar &rarr; Video ao vivo &rarr; Avancar<br>
-        2. Aqui: cole o video do Drive e clique Iniciar<br>
+        2. Aqui: adicione os videos e clique Iniciar<br>
         3. No Instagram: clique "Transmitir ao vivo" quando o preview aparecer
       </p>
     </div>
@@ -110,16 +107,13 @@
     <div id="livePanel" class="card" style="display:none">
       <h2>Ao Vivo</h2>
       <div class="uptime" id="uptime">00:00:00</div>
-      <div style="margin-top: 16px;">
-        <button class="btn btn-stop" onclick="stopStream()">Parar Live</button>
-      </div>
+      <div id="liveVideoCount" style="font-size: 13px; color: #888; margin-top: 4px;"></div>
+      <div style="margin-top: 16px;"><button class="btn btn-stop" onclick="stopStream()">Parar Live</button></div>
     </div>
 
     <div class="card">
       <h2>Logs</h2>
-      <div class="logs" id="logsContainer">
-        <div class="log-entry">Aguardando...</div>
-      </div>
+      <div class="logs" id="logsContainer"><div class="log-entry">Aguardando...</div></div>
       <button class="btn btn-secondary" onclick="clearCache()">Limpar cache de videos</button>
     </div>
   </div>
@@ -129,91 +123,81 @@
     let pollInterval = null;
     let uptimeInterval = null;
     let streamStartTime = null;
-    let hasDefaults = false;
 
     function doLogin() {
       KEY = document.getElementById('adminKey').value;
       if (!KEY) return;
       fetch('/api/stream/status?key=' + KEY)
-        .then(r => {
-          if (r.status === 401) { alert('Senha incorreta'); return; }
+        .then(r => { if (r.status === 401) { alert('Senha incorreta'); return; }
           document.getElementById('login').style.display = 'none';
           document.getElementById('dashboard').style.display = 'block';
-          loadDefaults();
-          startPolling();
-          fetchLogs();
-        })
-        .catch(() => alert('Erro de conexao'));
+          loadDefaults(); startPolling(); fetchLogs();
+        }).catch(() => alert('Erro de conexao'));
     }
 
-    function apiHeaders() {
-      return { 'Content-Type': 'application/json', 'X-Admin-Key': KEY };
-    }
+    function apiHeaders() { return { 'Content-Type': 'application/json', 'X-Admin-Key': KEY }; }
 
     async function loadDefaults() {
       try {
         const res = await fetch('/api/defaults?key=' + KEY);
         const data = await res.json();
-        if (data.streamUrl) {
-          document.getElementById('streamUrl').value = data.streamUrl;
-          document.getElementById('streamUrl').classList.add('prefilled');
-        }
-        if (data.streamKey) {
-          document.getElementById('streamKey').value = data.streamKey;
-          document.getElementById('streamKey').classList.add('prefilled');
-          hasDefaults = true;
-          document.getElementById('prefilledNote').style.display = 'block';
-        }
-        if (data.account) {
-          document.getElementById('accountName').textContent = '@' + data.account;
-        }
+        if (data.streamUrl) { document.getElementById('streamUrl').value = data.streamUrl; document.getElementById('streamUrl').classList.add('prefilled'); }
+        if (data.streamKey) { document.getElementById('streamKey').value = data.streamKey; document.getElementById('streamKey').classList.add('prefilled'); document.getElementById('prefilledNote').style.display = 'block'; }
+        if (data.account) { document.getElementById('accountName').textContent = '@' + data.account; }
       } catch (e) {}
+    }
+
+    function addVideoField() {
+      const list = document.getElementById('videoList');
+      const count = list.children.length + 1;
+      const row = document.createElement('div');
+      row.className = 'video-row';
+      row.innerHTML = `<span class="num">${count}.</span><input type="text" placeholder="https://drive.google.com/file/d/... ou https://youtube.com/watch?v=..."><button class="btn-remove" onclick="removeVideoField(this)" title="Remover">&times;</button>`;
+      list.appendChild(row);
+    }
+
+    function removeVideoField(btn) {
+      const row = btn.parentElement;
+      row.remove();
+      // Renumber
+      const rows = document.querySelectorAll('#videoList .video-row');
+      rows.forEach((r, i) => { r.querySelector('.num').textContent = (i + 1) + '.'; });
+    }
+
+    function getVideoUrls() {
+      const inputs = document.querySelectorAll('#videoList input');
+      return Array.from(inputs).map(i => i.value.trim()).filter(v => v);
     }
 
     function toggleDetails() {
       const details = document.getElementById('rtmpDetails');
       const btn = document.getElementById('toggleBtn');
-      if (details.classList.contains('details-hidden')) {
-        details.classList.remove('details-hidden');
-        btn.textContent = 'Esconder config RTMP';
-      } else {
-        details.classList.add('details-hidden');
-        btn.textContent = 'Mostrar config RTMP';
-      }
+      if (details.classList.contains('details-hidden')) { details.classList.remove('details-hidden'); btn.textContent = 'Esconder config RTMP'; }
+      else { details.classList.add('details-hidden'); btn.textContent = 'Mostrar config RTMP'; }
     }
 
     async function startStream() {
       const streamUrl = document.getElementById('streamUrl').value.trim();
       const streamKey = document.getElementById('streamKey').value.trim();
-      const videoUrl = document.getElementById('videoUrl').value.trim();
+      const videoUrls = getVideoUrls();
       const loop = document.getElementById('loop').checked;
 
       if (!streamKey) { alert('Chave de stream nao encontrada. Clique em "Mostrar config RTMP" e preencha.'); return; }
-      if (!videoUrl) { alert('Cole a URL do video do Google Drive'); return; }
+      if (videoUrls.length === 0) { alert('Adicione pelo menos um video'); return; }
 
       const btn = document.getElementById('btnStart');
       btn.disabled = true;
-      btn.textContent = 'Baixando video e iniciando...';
+      btn.textContent = 'Baixando video(s) e iniciando...';
 
       try {
         const res = await fetch('/api/stream/start', {
-          method: 'POST',
-          headers: apiHeaders(),
-          body: JSON.stringify({ streamUrl, streamKey, videoUrl, loop })
+          method: 'POST', headers: apiHeaders(),
+          body: JSON.stringify({ streamUrl, streamKey, videoUrls, loop })
         });
         const data = await res.json();
-        if (data.error) {
-          alert('Erro: ' + data.error);
-          btn.disabled = false;
-          btn.textContent = 'Iniciar Live';
-          return;
-        }
+        if (data.error) { alert('Erro: ' + data.error); btn.disabled = false; btn.textContent = 'Iniciar Live'; return; }
         fetchLogs();
-      } catch (e) {
-        alert('Erro de conexao');
-        btn.disabled = false;
-        btn.textContent = 'Iniciar Live';
-      }
+      } catch (e) { alert('Erro de conexao'); btn.disabled = false; btn.textContent = 'Iniciar Live'; }
     }
 
     async function stopStream() {
@@ -238,21 +222,16 @@
       const btn = document.getElementById('btnStart');
 
       if (status.streaming) {
-        bar.className = 'status-bar live';
-        dot.className = 'dot on';
-        text.textContent = 'AO VIVO';
-        startPanel.style.display = 'none';
-        livePanel.style.display = 'block';
+        bar.className = 'status-bar live'; dot.className = 'dot on'; text.textContent = 'AO VIVO';
+        startPanel.style.display = 'none'; livePanel.style.display = 'block';
+        const vc = document.getElementById('liveVideoCount');
+        vc.textContent = status.videoUrls ? status.videoUrls.length + ' video(s) na playlist' : '';
         streamStartTime = new Date(status.startedAt);
-        if (!uptimeInterval) { uptimeInterval = setInterval(updateUptime, 1000); }
+        if (!uptimeInterval) uptimeInterval = setInterval(updateUptime, 1000);
       } else {
-        bar.className = 'status-bar offline';
-        dot.className = 'dot off';
-        text.textContent = 'Offline';
-        startPanel.style.display = 'block';
-        livePanel.style.display = 'none';
-        btn.disabled = false;
-        btn.textContent = 'Iniciar Live';
+        bar.className = 'status-bar offline'; dot.className = 'dot off'; text.textContent = 'Offline';
+        startPanel.style.display = 'block'; livePanel.style.display = 'none';
+        btn.disabled = false; btn.textContent = 'Iniciar Live';
         streamStartTime = null;
         if (uptimeInterval) { clearInterval(uptimeInterval); uptimeInterval = null; }
         document.getElementById('uptime').textContent = '00:00:00';
@@ -268,18 +247,10 @@
       document.getElementById('uptime').textContent = `${h}:${m}:${s}`;
     }
 
-    async function fetchStatus() {
-      try {
-        const res = await fetch('/api/stream/status?key=' + KEY);
-        const data = await res.json();
-        updateUI(data);
-      } catch (e) {}
-    }
-
+    async function fetchStatus() { try { const res = await fetch('/api/stream/status?key=' + KEY); updateUI(await res.json()); } catch (e) {} }
     async function fetchLogs() {
       try {
-        const res = await fetch('/api/logs?key=' + KEY);
-        const data = await res.json();
+        const res = await fetch('/api/logs?key=' + KEY); const data = await res.json();
         const container = document.getElementById('logsContainer');
         container.innerHTML = data.logs.map(l => {
           let cls = 'log-entry';
@@ -291,15 +262,9 @@
       } catch (e) {}
     }
 
-    function startPolling() {
-      fetchStatus();
-      pollInterval = setInterval(() => { fetchStatus(); fetchLogs(); }, 3000);
-    }
+    function startPolling() { fetchStatus(); pollInterval = setInterval(() => { fetchStatus(); fetchLogs(); }, 3000); }
 
-    if (window.location.hash) {
-      document.getElementById('adminKey').value = window.location.hash.slice(1);
-      doLogin();
-    }
+    if (window.location.hash) { document.getElementById('adminKey').value = window.location.hash.slice(1); doLogin(); }
   </script>
 </body>
 </html>

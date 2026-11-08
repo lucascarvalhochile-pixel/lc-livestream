@@ -1,8 +1,9 @@
 FROM node:20-slim
 
-# Install FFmpeg and curl
+# Install FFmpeg, curl, python3 and yt-dlp
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg curl python3 && \
+    apt-get install -y --no-install-recommends ffmpeg curl python3 pip && \
+    pip install --break-system-packages yt-dlp && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -12,7 +13,6 @@ RUN npm install --production
 
 COPY . .
 
-# Railway sets PORT automatically
 EXPOSE ${PORT:-3000}
 
 CMD ["node", "server.js"]
