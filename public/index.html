@@ -31,10 +31,11 @@
     .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
     .btn-start { background: #0095f6; color: #fff; } .btn-start:hover { background: #0077cc; } .btn-start:disabled { background: #333; color: #666; cursor: not-allowed; }
     .btn-stop { background: #e74c3c; color: #fff; } .btn-stop:hover { background: #c0392b; }
+    .btn-swap { background: #f39c12; color: #fff; margin-top: 10px; } .btn-swap:hover { background: #e67e22; } .btn-swap:disabled { background: #333; color: #666; cursor: not-allowed; }
     .btn-secondary { background: #222; color: #999; font-size: 12px; padding: 10px; margin-top: 8px; } .btn-secondary:hover { background: #333; color: #ccc; }
-    .btn-add { background: #1a1a1a; border: 1px dashed #444; color: #888; font-size: 13px; padding: 10px; margin-bottom: 14px; border-radius: 8px; cursor: pointer; } .btn-add:hover { border-color: #0095f6; color: #0095f6; }
-    .btn-remove { background: none; border: none; color: #666; font-size: 18px; cursor: pointer; padding: 4px 8px; position: absolute; right: 4px; top: 4px; } .btn-remove:hover { color: #e74c3c; }
-    .video-row { position: relative; display: flex; align-items: center; gap: 8px; }
+    .btn-add { background: #1a1a1a; border: 1px dashed #444; color: #888; font-size: 13px; padding: 10px; margin-bottom: 14px; border-radius: 8px; cursor: pointer; width: 100%; } .btn-add:hover { border-color: #0095f6; color: #0095f6; }
+    .btn-remove { background: none; border: none; color: #666; font-size: 18px; cursor: pointer; padding: 4px 8px; } .btn-remove:hover { color: #e74c3c; }
+    .video-row { display: flex; align-items: center; gap: 8px; }
     .video-row input { flex: 1; margin-bottom: 8px; }
     .video-row .num { font-size: 12px; color: #555; min-width: 20px; margin-bottom: 8px; }
     .logs { background: #0a0a0a; border: 1px solid #222; border-radius: 8px; padding: 14px; max-height: 240px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.6; color: #666; }
@@ -47,6 +48,8 @@
     .toggle-details { font-size: 12px; color: #666; cursor: pointer; margin-bottom: 10px; } .toggle-details:hover { color: #999; }
     .details-hidden { display: none; }
     .source-hint { font-size: 11px; color: #555; margin-bottom: 14px; }
+    .swap-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid #222; }
+    .swap-section h3 { font-size: 13px; color: #f39c12; margin-bottom: 10px; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -70,22 +73,16 @@
 
     <div id="startPanel" class="card">
       <h2>Nova Live</h2>
-
       <label>Videos (Google Drive ou YouTube)</label>
       <div class="source-hint">Cole URLs do Google Drive ou YouTube. Multiplos videos tocam em sequencia.</div>
       <div id="videoList">
-        <div class="video-row">
-          <span class="num">1.</span>
-          <input type="text" placeholder="https://drive.google.com/file/d/... ou https://youtube.com/watch?v=...">
-        </div>
+        <div class="video-row"><span class="num">1.</span><input type="text" placeholder="https://drive.google.com/file/d/... ou https://youtube.com/watch?v=..."></div>
       </div>
       <button class="btn-add" onclick="addVideoField()">+ Adicionar video</button>
-
       <div class="checkbox-row">
         <input type="checkbox" id="loop" checked>
         <label for="loop">Repetir playlist em loop</label>
       </div>
-
       <div class="toggle-details" onclick="toggleDetails()" id="toggleBtn">Mostrar config RTMP</div>
       <div id="rtmpDetails" class="details-hidden">
         <div id="prefilledNote" class="prefilled-label" style="display:none">Chave persistente carregada automaticamente</div>
@@ -94,9 +91,7 @@
         <label>Stream Key</label>
         <textarea id="streamKey" rows="2" placeholder="Cole a chave de stream"></textarea>
       </div>
-
       <button class="btn btn-start" id="btnStart" onclick="startStream()">Iniciar Live</button>
-
       <p class="help">
         1. No Instagram (desktop): Criar &rarr; Video ao vivo &rarr; Avancar<br>
         2. Aqui: adicione os videos e clique Iniciar<br>
@@ -109,6 +104,16 @@
       <div class="uptime" id="uptime">00:00:00</div>
       <div id="liveVideoCount" style="font-size: 13px; color: #888; margin-top: 4px;"></div>
       <div style="margin-top: 16px;"><button class="btn btn-stop" onclick="stopStream()">Parar Live</button></div>
+
+      <div class="swap-section">
+        <h3>Trocar video sem parar a live</h3>
+        <div id="swapVideoList">
+          <div class="video-row"><span class="num">1.</span><input type="text" placeholder="Novo video (Drive ou YouTube)"></div>
+        </div>
+        <button class="btn-add" onclick="addSwapVideoField()">+ Adicionar video</button>
+        <button class="btn btn-swap" id="btnSwap" onclick="swapVideos(false)">Trocar (quando o atual terminar)</button>
+        <button class="btn btn-swap" id="btnSwapNow" onclick="swapVideos(true)" style="background:#e67e22;">Trocar agora (pausa de ~3s)</button>
+      </div>
     </div>
 
     <div class="card">
@@ -119,152 +124,104 @@
   </div>
 
   <script>
-    let KEY = '';
-    let pollInterval = null;
-    let uptimeInterval = null;
-    let streamStartTime = null;
+    let KEY='';
+    let pollInterval=null, uptimeInterval=null, streamStartTime=null;
 
     function doLogin() {
-      KEY = document.getElementById('adminKey').value;
-      if (!KEY) return;
-      fetch('/api/stream/status?key=' + KEY)
-        .then(r => { if (r.status === 401) { alert('Senha incorreta'); return; }
-          document.getElementById('login').style.display = 'none';
-          document.getElementById('dashboard').style.display = 'block';
-          loadDefaults(); startPolling(); fetchLogs();
-        }).catch(() => alert('Erro de conexao'));
+      KEY=document.getElementById('adminKey').value; if(!KEY) return;
+      fetch('/api/stream/status?key='+KEY).then(r=>{if(r.status===401){alert('Senha incorreta');return;}
+        document.getElementById('login').style.display='none';
+        document.getElementById('dashboard').style.display='block';
+        loadDefaults(); startPolling(); fetchLogs();
+      }).catch(()=>alert('Erro de conexao'));
+    }
+    function apiHeaders(){return{'Content-Type':'application/json','X-Admin-Key':KEY};}
+
+    async function loadDefaults(){
+      try{const r=await fetch('/api/defaults?key='+KEY);const d=await r.json();
+        if(d.streamUrl){document.getElementById('streamUrl').value=d.streamUrl;document.getElementById('streamUrl').classList.add('prefilled');}
+        if(d.streamKey){document.getElementById('streamKey').value=d.streamKey;document.getElementById('streamKey').classList.add('prefilled');document.getElementById('prefilledNote').style.display='block';}
+        if(d.account){document.getElementById('accountName').textContent='@'+d.account;}
+      }catch(e){}
     }
 
-    function apiHeaders() { return { 'Content-Type': 'application/json', 'X-Admin-Key': KEY }; }
-
-    async function loadDefaults() {
-      try {
-        const res = await fetch('/api/defaults?key=' + KEY);
-        const data = await res.json();
-        if (data.streamUrl) { document.getElementById('streamUrl').value = data.streamUrl; document.getElementById('streamUrl').classList.add('prefilled'); }
-        if (data.streamKey) { document.getElementById('streamKey').value = data.streamKey; document.getElementById('streamKey').classList.add('prefilled'); document.getElementById('prefilledNote').style.display = 'block'; }
-        if (data.account) { document.getElementById('accountName').textContent = '@' + data.account; }
-      } catch (e) {}
-    }
-
-    function addVideoField() {
-      const list = document.getElementById('videoList');
-      const count = list.children.length + 1;
-      const row = document.createElement('div');
-      row.className = 'video-row';
-      row.innerHTML = `<span class="num">${count}.</span><input type="text" placeholder="https://drive.google.com/file/d/... ou https://youtube.com/watch?v=..."><button class="btn-remove" onclick="removeVideoField(this)" title="Remover">&times;</button>`;
+    function addVideoField(){
+      const list=document.getElementById('videoList');const c=list.children.length+1;
+      const row=document.createElement('div');row.className='video-row';
+      row.innerHTML=`<span class="num">${c}.</span><input type="text" placeholder="https://drive.google.com/file/d/... ou https://youtube.com/watch?v=..."><button class="btn-remove" onclick="removeVideoField(this)">&times;</button>`;
       list.appendChild(row);
     }
+    function removeVideoField(btn){btn.parentElement.remove();document.querySelectorAll('#videoList .video-row').forEach((r,i)=>{r.querySelector('.num').textContent=(i+1)+'.';});}
+    function getVideoUrls(){return Array.from(document.querySelectorAll('#videoList input')).map(i=>i.value.trim()).filter(v=>v);}
 
-    function removeVideoField(btn) {
-      const row = btn.parentElement;
-      row.remove();
-      // Renumber
-      const rows = document.querySelectorAll('#videoList .video-row');
-      rows.forEach((r, i) => { r.querySelector('.num').textContent = (i + 1) + '.'; });
+    function addSwapVideoField(){
+      const list=document.getElementById('swapVideoList');const c=list.children.length+1;
+      const row=document.createElement('div');row.className='video-row';
+      row.innerHTML=`<span class="num">${c}.</span><input type="text" placeholder="Novo video (Drive ou YouTube)"><button class="btn-remove" onclick="removeSwapField(this)">&times;</button>`;
+      list.appendChild(row);
+    }
+    function removeSwapField(btn){btn.parentElement.remove();document.querySelectorAll('#swapVideoList .video-row').forEach((r,i)=>{r.querySelector('.num').textContent=(i+1)+'.';});}
+    function getSwapUrls(){return Array.from(document.querySelectorAll('#swapVideoList input')).map(i=>i.value.trim()).filter(v=>v);}
+
+    function toggleDetails(){
+      const d=document.getElementById('rtmpDetails'),b=document.getElementById('toggleBtn');
+      if(d.classList.contains('details-hidden')){d.classList.remove('details-hidden');b.textContent='Esconder config RTMP';}
+      else{d.classList.add('details-hidden');b.textContent='Mostrar config RTMP';}
     }
 
-    function getVideoUrls() {
-      const inputs = document.querySelectorAll('#videoList input');
-      return Array.from(inputs).map(i => i.value.trim()).filter(v => v);
-    }
-
-    function toggleDetails() {
-      const details = document.getElementById('rtmpDetails');
-      const btn = document.getElementById('toggleBtn');
-      if (details.classList.contains('details-hidden')) { details.classList.remove('details-hidden'); btn.textContent = 'Esconder config RTMP'; }
-      else { details.classList.add('details-hidden'); btn.textContent = 'Mostrar config RTMP'; }
-    }
-
-    async function startStream() {
-      const streamUrl = document.getElementById('streamUrl').value.trim();
-      const streamKey = document.getElementById('streamKey').value.trim();
-      const videoUrls = getVideoUrls();
-      const loop = document.getElementById('loop').checked;
-
-      if (!streamKey) { alert('Chave de stream nao encontrada. Clique em "Mostrar config RTMP" e preencha.'); return; }
-      if (videoUrls.length === 0) { alert('Adicione pelo menos um video'); return; }
-
-      const btn = document.getElementById('btnStart');
-      btn.disabled = true;
-      btn.textContent = 'Baixando video(s) e iniciando...';
-
-      try {
-        const res = await fetch('/api/stream/start', {
-          method: 'POST', headers: apiHeaders(),
-          body: JSON.stringify({ streamUrl, streamKey, videoUrls, loop })
-        });
-        const data = await res.json();
-        if (data.error) { alert('Erro: ' + data.error); btn.disabled = false; btn.textContent = 'Iniciar Live'; return; }
+    async function startStream(){
+      const streamUrl=document.getElementById('streamUrl').value.trim();
+      const streamKey=document.getElementById('streamKey').value.trim();
+      const videoUrls=getVideoUrls();const loop=document.getElementById('loop').checked;
+      if(!streamKey){alert('Chave de stream nao encontrada.');return;}
+      if(videoUrls.length===0){alert('Adicione pelo menos um video');return;}
+      const btn=document.getElementById('btnStart');btn.disabled=true;btn.textContent='Baixando video(s) e iniciando...';
+      try{
+        const r=await fetch('/api/stream/start',{method:'POST',headers:apiHeaders(),body:JSON.stringify({streamUrl,streamKey,videoUrls,loop})});
+        const d=await r.json();if(d.error){alert('Erro: '+d.error);btn.disabled=false;btn.textContent='Iniciar Live';return;}
         fetchLogs();
-      } catch (e) { alert('Erro de conexao'); btn.disabled = false; btn.textContent = 'Iniciar Live'; }
+      }catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent='Iniciar Live';}
     }
 
-    async function stopStream() {
-      if (!confirm('Parar a live?')) return;
-      await fetch('/api/stream/stop', { method: 'POST', headers: apiHeaders() });
-      fetchLogs();
+    async function swapVideos(immediate){
+      const videoUrls=getSwapUrls();
+      if(videoUrls.length===0){alert('Cole pelo menos um video novo');return;}
+      const btnId=immediate?'btnSwapNow':'btnSwap';
+      const btn=document.getElementById(btnId);btn.disabled=true;btn.textContent='Trocando...';
+      const endpoint=immediate?'/api/stream/swap-now':'/api/stream/swap';
+      try{
+        const r=await fetch(endpoint,{method:'POST',headers:apiHeaders(),body:JSON.stringify({videoUrls})});
+        const d=await r.json();
+        if(d.error){alert('Erro: '+d.error);}
+        else{alert(d.message);}
+        btn.disabled=false;btn.textContent=immediate?'Trocar agora (pausa de ~3s)':'Trocar (quando o atual terminar)';
+        fetchLogs();
+      }catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent=immediate?'Trocar agora (pausa de ~3s)':'Trocar (quando o atual terminar)';}
     }
 
-    async function clearCache() {
-      if (!confirm('Remover videos em cache?')) return;
-      const res = await fetch('/api/cache/clear', { method: 'POST', headers: apiHeaders() });
-      const data = await res.json();
-      alert(`${data.removed} arquivo(s) removido(s)`);
-    }
+    async function stopStream(){if(!confirm('Parar a live?'))return;await fetch('/api/stream/stop',{method:'POST',headers:apiHeaders()});fetchLogs();}
+    async function clearCache(){if(!confirm('Remover videos em cache?'))return;const r=await fetch('/api/cache/clear',{method:'POST',headers:apiHeaders()});const d=await r.json();alert(`${d.removed} arquivo(s) removido(s)`);}
 
-    function updateUI(status) {
-      const bar = document.getElementById('statusBar');
-      const dot = document.getElementById('statusDot');
-      const text = document.getElementById('statusText');
-      const startPanel = document.getElementById('startPanel');
-      const livePanel = document.getElementById('livePanel');
-      const btn = document.getElementById('btnStart');
-
-      if (status.streaming) {
-        bar.className = 'status-bar live'; dot.className = 'dot on'; text.textContent = 'AO VIVO';
-        startPanel.style.display = 'none'; livePanel.style.display = 'block';
-        const vc = document.getElementById('liveVideoCount');
-        vc.textContent = status.videoUrls ? status.videoUrls.length + ' video(s) na playlist' : '';
-        streamStartTime = new Date(status.startedAt);
-        if (!uptimeInterval) uptimeInterval = setInterval(updateUptime, 1000);
-      } else {
-        bar.className = 'status-bar offline'; dot.className = 'dot off'; text.textContent = 'Offline';
-        startPanel.style.display = 'block'; livePanel.style.display = 'none';
-        btn.disabled = false; btn.textContent = 'Iniciar Live';
-        streamStartTime = null;
-        if (uptimeInterval) { clearInterval(uptimeInterval); uptimeInterval = null; }
-        document.getElementById('uptime').textContent = '00:00:00';
+    function updateUI(status){
+      const bar=document.getElementById('statusBar'),dot=document.getElementById('statusDot'),text=document.getElementById('statusText');
+      const sp=document.getElementById('startPanel'),lp=document.getElementById('livePanel'),btn=document.getElementById('btnStart');
+      if(status.streaming){
+        bar.className='status-bar live';dot.className='dot on';text.textContent='AO VIVO';
+        sp.style.display='none';lp.style.display='block';
+        document.getElementById('liveVideoCount').textContent=status.videoUrls?status.videoUrls.length+' video(s) na playlist':'';
+        streamStartTime=new Date(status.startedAt);if(!uptimeInterval)uptimeInterval=setInterval(updateUptime,1000);
+      }else{
+        bar.className='status-bar offline';dot.className='dot off';text.textContent='Offline';
+        sp.style.display='block';lp.style.display='none';btn.disabled=false;btn.textContent='Iniciar Live';
+        streamStartTime=null;if(uptimeInterval){clearInterval(uptimeInterval);uptimeInterval=null;}
+        document.getElementById('uptime').textContent='00:00:00';
       }
     }
-
-    function updateUptime() {
-      if (!streamStartTime) return;
-      const diff = Math.floor((Date.now() - streamStartTime.getTime()) / 1000);
-      const h = String(Math.floor(diff / 3600)).padStart(2, '0');
-      const m = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
-      const s = String(diff % 60).padStart(2, '0');
-      document.getElementById('uptime').textContent = `${h}:${m}:${s}`;
-    }
-
-    async function fetchStatus() { try { const res = await fetch('/api/stream/status?key=' + KEY); updateUI(await res.json()); } catch (e) {} }
-    async function fetchLogs() {
-      try {
-        const res = await fetch('/api/logs?key=' + KEY); const data = await res.json();
-        const container = document.getElementById('logsContainer');
-        container.innerHTML = data.logs.map(l => {
-          let cls = 'log-entry';
-          if (l.toLowerCase().includes('error')) cls += ' error';
-          if (l.includes('complete') || l.includes('started')) cls += ' success';
-          return `<div class="${cls}">${l}</div>`;
-        }).join('');
-        container.scrollTop = container.scrollHeight;
-      } catch (e) {}
-    }
-
-    function startPolling() { fetchStatus(); pollInterval = setInterval(() => { fetchStatus(); fetchLogs(); }, 3000); }
-
-    if (window.location.hash) { document.getElementById('adminKey').value = window.location.hash.slice(1); doLogin(); }
+    function updateUptime(){if(!streamStartTime)return;const d=Math.floor((Date.now()-streamStartTime.getTime())/1000);const h=String(Math.floor(d/3600)).padStart(2,'0');const m=String(Math.floor((d%3600)/60)).padStart(2,'0');const s=String(d%60).padStart(2,'0');document.getElementById('uptime').textContent=`${h}:${m}:${s}`;}
+    async function fetchStatus(){try{const r=await fetch('/api/stream/status?key='+KEY);updateUI(await r.json());}catch(e){}}
+    async function fetchLogs(){try{const r=await fetch('/api/logs?key='+KEY);const d=await r.json();const c=document.getElementById('logsContainer');c.innerHTML=d.logs.map(l=>{let cls='log-entry';if(l.toLowerCase().includes('error'))cls+=' error';if(l.includes('complete')||l.includes('started'))cls+=' success';return`<div class="${cls}">${l}</div>`;}).join('');c.scrollTop=c.scrollHeight;}catch(e){}}
+    function startPolling(){fetchStatus();pollInterval=setInterval(()=>{fetchStatus();fetchLogs();},3000);}
+    if(window.location.hash){document.getElementById('adminKey').value=window.location.hash.slice(1);doLogin();}
   </script>
 </body>
 </html>
