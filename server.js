@@ -18,9 +18,7 @@ const DEFAULT_STREAM_URL = process.env.DEFAULT_STREAM_URL || '';
 const DEFAULT_STREAM_KEY = process.env.DEFAULT_STREAM_KEY || '';
 const DEFAULT_ACCOUNT = process.env.DEFAULT_ACCOUNT || '';
 
-if (!fs.existsSync(VIDEOS_DIR)) {
-  fs.mkdirSync(VIDEOS_DIR, { recursive: true });
-}
+if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
 
 let currentStream = null;
 let streamLogs = [];
@@ -46,18 +44,15 @@ function extractDriveFileId(url) {
   return null;
 }
 
-function isYouTubeUrl(url) {
-  return /(?:youtube\.com|youtu\.be)/.test(url);
-}
+function isYouTubeUrl(url) { return /(?:youtube\.com|youtu\.be)/.test(url); }
 
-function getVideoDimensions(videoPath) {
+function getVideoInfo(videoPath) {
   try {
-    const result = execSync(`ffprobe -v quiet -print_format json -show_streams "${videoPath}"`, { encoding: 'utf8' });
+    const result = execSync(`ffprobe -v quiet -print_format json -show_streams -show_format "${videoPath}"`, { encoding: 'utf8' });
     const data = JSON.parse(result);
     const vs = data.streams.find(s => s.codec_type === 'video');
-    if (vs) return { width: vs.width, height: vs.height };
-  } catch (e) {}
-  return null;
+    return vs ? { width: vs.width, height: vs.height, codec: vs.codec_name, fps: eval(vs.r_frame_rate) } : null;
+  } catch (e) { return null; }
 }
 
 function downloadFromDrive(fileId, destPath) {
@@ -79,7 +74,7 @@ function downloadFromDrive(fileId, destPath) {
           file.close();
           const stats = fs.statSync(destPath);
           log(`Download complete: ${Math.round(stats.size/1024/1024)}MB`);
-          if (stats.size < 100000) { const c = fs.readFileSync(destPath,'utf8'); if (c.includes('</html>')||c.includes('virus scan')) { reject(new Error('Drive blocked download. Set sharing to "Anyone with the link".')); return; } }
+          if (stats.size < 100000) { const c = fs.readFileSync(destPath,'utf8'); if (c.includes('</html>')||c.includes('virus scan')) { reject(new Error('Drive blocked. Set sharing to "Anyone with the link".')); return; } }
           resolve(destPath);
         });
       }).on('error', (err) => { fs.unlink(destPath, ()=>{}); reject(err); });
@@ -102,17 +97,47 @@ function downloadFromYouTube(url, destPath) {
   });
 }
 
-function convertToVertical(inputPath) {
+// Normalize video to H.264 1080x1920 30fps for clean concat
+function normalizeVideo(inputPath) {
   return new Promise((resolve, reject) => {
-    const outputPath = inputPath.replace('.mp4', '_vertical.mp4');
-    if (fs.existsSync(outputPath)) { log(`Vertical cached: ${outputPath}`); resolve(outputPath); return; }
-    log(`Converting to vertical with blur background...`);
-    const filter = "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2";
-    const ff = spawn('ffmpeg', ['-i',inputPath,'-filter_complex',filter,'-c:v','libx264','-preset','fast','-b:v','4500k','-maxrate','6000k','-bufsize','12000k','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-ar','44100','-y',outputPath]);
-    ff.stderr.on('data', (d) => { const l=d.toString().trim(); if(l.includes('frame=')&&Math.random()<0.05) log(`[convert] ${l.substring(0,150)}`); });
+    const hash = require('crypto').createHash('md5').update(inputPath).digest('hex').slice(0,8);
+    const outputPath = path.join(VIDEOS_DIR, `norm_${hash}.mp4`);
+    if (fs.existsSync(outputPath)) { log(`Normalized cached: ${outputPath}`); resolve(outputPath); return; }
+
+    const info = getVideoInfo(inputPath);
+    if (!info) { reject(new Error('Cannot read video info')); return; }
+
+    log(`Normalizing: ${info.width}x${info.height} ${info.codec} -> 1080x1920 h264 30fps`);
+
+    let filter;
+    if (info.width > info.height) {
+      // Horizontal: blur background + center
+      filter = '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps=30';
+    } else {
+      // Vertical: scale to fit 1080x1920
+      filter = 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=30';
+    }
+
+    const ff = spawn('ffmpeg', [
+      '-i', inputPath,
+      '-vf', filter,
+      '-c:v', 'libx264', '-preset', 'fast',
+      '-b:v', '4500k', '-maxrate', '6000k', '-bufsize', '12000k',
+      '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2',
+      '-y', outputPath
+    ]);
+
+    ff.stderr.on('data', (d) => {
+      const l = d.toString().trim();
+      if (l.includes('frame=') && Math.random() < 0.05) log(`[normalize] ${l.substring(0,150)}`);
+    });
+
     ff.on('close', (code) => {
-      if (code===0 && fs.existsSync(outputPath)) { log(`Vertical done: ${Math.round(fs.statSync(outputPath).size/1024/1024)}MB`); resolve(outputPath); }
-      else reject(new Error(`Conversion failed (code ${code})`));
+      if (code === 0 && fs.existsSync(outputPath)) {
+        log(`Normalized: ${Math.round(fs.statSync(outputPath).size/1024/1024)}MB`);
+        resolve(outputPath);
+      } else reject(new Error(`Normalize failed (code ${code})`));
     });
     ff.on('error', reject);
   });
@@ -138,54 +163,71 @@ async function resolveVideo(videoUrl) {
       await downloadFromDrive(url, videoPath);
     } else return null;
   }
-  const dims = getVideoDimensions(videoPath);
-  if (dims) {
-    log(`Dimensions: ${dims.width}x${dims.height}`);
-    if (dims.width > dims.height) {
-      log(`Horizontal detected, converting...`);
-      videoPath = await convertToVertical(videoPath);
-    }
-  }
   return videoPath;
 }
 
-async function resolveAllVideos(urls) {
+async function resolveAllVideos(urls, forPlaylist) {
   const paths = [];
   for (let i = 0; i < urls.length; i++) {
     log(`Video ${i+1}/${urls.length}: ${urls[i].substring(0,80)}...`);
-    const vp = await resolveVideo(urls[i]);
+    let vp = await resolveVideo(urls[i]);
     if (!vp) throw new Error(`Invalid URL: ${urls[i]}`);
     try { execSync(`ffprobe -v quiet -print_format json -show_format "${vp}"`); } catch(e) { throw new Error(`Not a valid video: ${urls[i]}`); }
+    // For playlists with multiple videos, normalize each to same format
+    if (forPlaylist && urls.length > 1) {
+      vp = await normalizeVideo(vp);
+    }
     paths.push(vp);
   }
   return paths;
 }
 
-function writeConcatFile(videoPaths, loop) {
+function writeConcatFile(videoPaths) {
   const concatPath = path.join(VIDEOS_DIR, 'current_playlist.txt');
-  let content = videoPaths.map(p => `file '${p}'`).join('\n');
+  const content = videoPaths.map(p => `file '${p}'`).join('\n');
   fs.writeFileSync(concatPath, content);
   return concatPath;
 }
 
-function startFFmpeg(concatFile, rtmpUrl, loop) {
+function startFFmpegConcat(concatFile, rtmpUrl, loop) {
   const loopArgs = loop ? ['-stream_loop', '-1'] : [];
   return spawn('ffmpeg', [
     ...loopArgs,
     '-re', '-f', 'concat', '-safe', '0', '-i', concatFile,
-    '-c:v', 'libx264', '-preset', 'fast',
-    '-b:v', '4500k', '-maxrate', '6000k', '-bufsize', '12000k',
-    '-pix_fmt', 'yuv420p', '-g', '60',
-    '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
+    '-c', 'copy',
     '-f', 'flv', rtmpUrl
   ]);
 }
 
 function startSingleFFmpeg(videoPath, rtmpUrl, loop) {
+  const info = getVideoInfo(videoPath);
+  const isNormalized = videoPath.includes('norm_');
+
+  if (isNormalized) {
+    // Already normalized, just copy
+    const loopArgs = loop ? ['-stream_loop', '-1'] : [];
+    return spawn('ffmpeg', [...loopArgs, '-re', '-i', videoPath, '-c', 'copy', '-f', 'flv', rtmpUrl]);
+  }
+
+  // Single video: check if needs conversion
   const loopArgs = loop ? ['-stream_loop', '-1'] : [];
+  let filterArgs = [];
+  if (info && info.width > info.height) {
+    filterArgs = ['-vf', '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2'.replace(/;/g, ',')];
+    // Complex filter needs -filter_complex
+    return spawn('ffmpeg', [
+      ...loopArgs, '-re', '-i', videoPath,
+      '-filter_complex', '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2',
+      '-c:v', 'libx264', '-preset', 'fast',
+      '-b:v', '4500k', '-maxrate', '6000k', '-bufsize', '12000k',
+      '-pix_fmt', 'yuv420p', '-g', '60',
+      '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
+      '-f', 'flv', rtmpUrl
+    ]);
+  }
+
   return spawn('ffmpeg', [
-    ...loopArgs,
-    '-re', '-i', videoPath,
+    ...loopArgs, '-re', '-i', videoPath,
     '-c:v', 'libx264', '-preset', 'fast',
     '-b:v', '4500k', '-maxrate', '6000k', '-bufsize', '12000k',
     '-pix_fmt', 'yuv420p', '-g', '60',
@@ -199,7 +241,7 @@ function attachFFmpegHandlers(ffmpeg) {
     const line = data.toString().trim();
     if (line.includes('Error') || line.includes('error') ||
         line.includes('Stream mapping') || line.includes('Output #') ||
-        line.includes('frame=') && Math.random() < 0.01) {
+        line.includes('frame=') && Math.random() < 0.02) {
       log(`[ffmpeg] ${line.substring(0, 200)}`);
     }
   });
@@ -224,19 +266,18 @@ app.post('/api/stream/start', auth, async (req, res) => {
 
   try {
     log(`Preparing ${urls.length} video(s)...`);
-    const videoPaths = await resolveAllVideos(urls);
+    const videoPaths = await resolveAllVideos(urls, true);
 
     const baseUrl = streamUrl && streamUrl.trim() ? streamUrl.trim().replace(/\/$/,'') : 'rtmps://live-upload.instagram.com:443/rtmp';
     const rtmpUrl = `${baseUrl}/${streamKey}`;
 
-    let ffmpeg;
-    let concatFile = null;
+    let ffmpeg, concatFile = null;
 
     if (videoPaths.length === 1) {
       ffmpeg = startSingleFFmpeg(videoPaths[0], rtmpUrl, !!loop);
     } else {
-      concatFile = writeConcatFile(videoPaths, !!loop);
-      ffmpeg = startFFmpeg(concatFile, rtmpUrl, !!loop);
+      concatFile = writeConcatFile(videoPaths);
+      ffmpeg = startFFmpegConcat(concatFile, rtmpUrl, !!loop);
     }
 
     log(`Starting stream to Instagram...`);
@@ -247,12 +288,10 @@ app.post('/api/stream/start', auth, async (req, res) => {
     currentStream = {
       id: streamId, process: ffmpeg, startedAt: new Date().toISOString(),
       videoUrls: urls, videoPaths, loop: !!loop,
-      rtmpUrl, concatFile,
-      streamUrl: baseUrl, streamKey
+      rtmpUrl, concatFile, streamUrl: baseUrl, streamKey
     };
 
     attachFFmpegHandlers(ffmpeg);
-
     await new Promise(resolve => setTimeout(resolve, 3000));
 
     if (currentStream) {
@@ -267,10 +306,8 @@ app.post('/api/stream/start', auth, async (req, res) => {
   }
 });
 
-// Hot swap: update playlist, takes effect when current video ends cycle
 app.post('/api/stream/swap', auth, async (req, res) => {
   if (!currentStream) return res.status(400).json({ error: 'No stream running.' });
-
   const { videoUrl, videoUrls } = req.body;
   let urls = [];
   if (videoUrls && Array.isArray(videoUrls) && videoUrls.length > 0) urls = videoUrls.filter(u => u && u.trim());
@@ -279,21 +316,17 @@ app.post('/api/stream/swap', auth, async (req, res) => {
 
   try {
     log(`Hot swap: preparing ${urls.length} new video(s)...`);
-    const newPaths = await resolveAllVideos(urls);
-
+    const newPaths = await resolveAllVideos(urls, true);
     if (currentStream.concatFile) {
-      // Update the concat file on disk
       const content = newPaths.map(p => `file '${p}'`).join('\n');
       fs.writeFileSync(currentStream.concatFile, content);
       currentStream.videoUrls = urls;
       currentStream.videoPaths = newPaths;
-      log(`Hot swap: playlist updated. New videos play after current one ends.`);
+      log(`Hot swap: playlist updated.`);
       res.json({ success: true, message: 'Playlist updated. New videos play after the current one finishes.' });
     } else {
-      // Single video mode: need to do a swap-now (restart FFmpeg)
-      log(`Hot swap: single video mode, doing immediate swap...`);
       await doImmediateSwap(urls, newPaths);
-      res.json({ success: true, message: 'Video swapped! Stream reconnected in ~3 seconds.' });
+      res.json({ success: true, message: 'Video swapped! Stream reconnected.' });
     }
   } catch (err) {
     log(`Swap error: ${err.message}`);
@@ -301,10 +334,8 @@ app.post('/api/stream/swap', auth, async (req, res) => {
   }
 });
 
-// Immediate swap: restart FFmpeg with new videos, reconnects RTMP
 app.post('/api/stream/swap-now', auth, async (req, res) => {
   if (!currentStream) return res.status(400).json({ error: 'No stream running.' });
-
   const { videoUrl, videoUrls } = req.body;
   let urls = [];
   if (videoUrls && Array.isArray(videoUrls) && videoUrls.length > 0) urls = videoUrls.filter(u => u && u.trim());
@@ -313,7 +344,7 @@ app.post('/api/stream/swap-now', auth, async (req, res) => {
 
   try {
     log(`Immediate swap: preparing ${urls.length} video(s)...`);
-    const newPaths = await resolveAllVideos(urls);
+    const newPaths = await resolveAllVideos(urls, true);
     await doImmediateSwap(urls, newPaths);
     res.json({ success: true, message: 'Video swapped! Stream reconnected.' });
   } catch (err) {
@@ -324,38 +355,28 @@ app.post('/api/stream/swap-now', auth, async (req, res) => {
 
 async function doImmediateSwap(urls, newPaths) {
   const { rtmpUrl, loop } = currentStream;
-
-  // Kill current FFmpeg
-  log('Immediate swap: stopping current stream...');
+  log('Immediate swap: stopping current...');
   currentStream.process.removeAllListeners('close');
   currentStream.process.kill('SIGTERM');
   await new Promise(r => setTimeout(r, 1000));
 
-  // Start new FFmpeg
   let ffmpeg, concatFile = null;
   if (newPaths.length === 1) {
     ffmpeg = startSingleFFmpeg(newPaths[0], rtmpUrl, loop);
   } else {
-    concatFile = writeConcatFile(newPaths, loop);
-    ffmpeg = startFFmpeg(concatFile, rtmpUrl, loop);
+    concatFile = writeConcatFile(newPaths);
+    ffmpeg = startFFmpegConcat(concatFile, rtmpUrl, loop);
   }
 
   log(`Immediate swap: reconnecting with ${newPaths.length} video(s)...`);
-
   currentStream.process = ffmpeg;
   currentStream.videoUrls = urls;
   currentStream.videoPaths = newPaths;
   currentStream.concatFile = concatFile;
-
   attachFFmpegHandlers(ffmpeg);
-
   await new Promise(r => setTimeout(r, 3000));
-
-  if (currentStream) {
-    log(`Immediate swap: stream reconnected!`);
-  } else {
-    throw new Error('Stream failed to reconnect after swap.');
-  }
+  if (currentStream) log('Immediate swap: reconnected!');
+  else throw new Error('Stream failed to reconnect.');
 }
 
 app.post('/api/stream/stop', auth, (req, res) => {
