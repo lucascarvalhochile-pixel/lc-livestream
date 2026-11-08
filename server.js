@@ -50,6 +50,22 @@ function isYouTubeUrl(url) {
   return /(?:youtube\.com|youtu\.be)/.test(url);
 }
 
+// Get video dimensions
+function getVideoDimensions(videoPath) {
+  try {
+    const result = execSync(
+      `ffprobe -v quiet -print_format json -show_streams "${videoPath}"`,
+      { encoding: 'utf8' }
+    );
+    const data = JSON.parse(result);
+    const videoStream = data.streams.find(s => s.codec_type === 'video');
+    if (videoStream) {
+      return { width: videoStream.width, height: videoStream.height };
+    }
+  } catch (e) {}
+  return null;
+}
+
 function downloadFromDrive(fileId, destPath) {
   return new Promise((resolve, reject) => {
     const downloadUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t`;
@@ -102,17 +118,14 @@ function downloadFromYouTube(url, destPath) {
       '--no-warnings',
       url
     ]);
-
     ytdlp.stdout.on('data', (data) => {
       const line = data.toString().trim();
       if (line.includes('%')) log(`[yt-dlp] ${line}`);
     });
-
     ytdlp.stderr.on('data', (data) => {
       const line = data.toString().trim();
       if (line) log(`[yt-dlp] ${line}`);
     });
-
     ytdlp.on('close', (code) => {
       if (code === 0 && fs.existsSync(destPath)) {
         const stats = fs.statSync(destPath);
@@ -122,50 +135,111 @@ function downloadFromYouTube(url, destPath) {
         reject(new Error(`yt-dlp failed with code ${code}`));
       }
     });
-
     ytdlp.on('error', (err) => reject(err));
   });
 }
 
-// Resolve a single video URL to a local file path
+// Convert horizontal video to vertical with blur background
+function convertToVertical(inputPath) {
+  return new Promise((resolve, reject) => {
+    const outputPath = inputPath.replace('.mp4', '_vertical.mp4');
+    if (fs.existsSync(outputPath)) {
+      log(`Vertical version already cached: ${outputPath}`);
+      resolve(outputPath);
+      return;
+    }
+
+    log(`Converting to vertical with blur background...`);
+
+    // Filter: scale blurred background to 1080x1920, overlay original centered
+    const filter = [
+      '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];',
+      '[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];',
+      '[bg][fg]overlay=(W-w)/2:(H-h)/2'
+    ].join('');
+
+    const ffmpeg = spawn('ffmpeg', [
+      '-i', inputPath,
+      '-filter_complex', filter,
+      '-c:v', 'libx264',
+      '-preset', 'fast',
+      '-b:v', '4500k',
+      '-maxrate', '6000k',
+      '-bufsize', '12000k',
+      '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-ar', '44100',
+      '-y',
+      outputPath
+    ]);
+
+    ffmpeg.stderr.on('data', (data) => {
+      const line = data.toString().trim();
+      if (line.includes('frame=') && Math.random() < 0.05) {
+        log(`[convert] ${line.substring(0, 150)}`);
+      }
+    });
+
+    ffmpeg.on('close', (code) => {
+      if (code === 0 && fs.existsSync(outputPath)) {
+        const stats = fs.statSync(outputPath);
+        log(`Vertical conversion complete: ${Math.round(stats.size / 1024 / 1024)}MB`);
+        resolve(outputPath);
+      } else {
+        reject(new Error(`Vertical conversion failed (code ${code})`));
+      }
+    });
+
+    ffmpeg.on('error', (err) => reject(err));
+  });
+}
+
 async function resolveVideo(videoUrl) {
   const url = videoUrl.trim();
   if (!url) return null;
 
+  let videoPath;
+
   if (isYouTubeUrl(url)) {
-    // YouTube URL
     const hash = require('crypto').createHash('md5').update(url).digest('hex').slice(0, 12);
-    const videoPath = path.join(VIDEOS_DIR, `yt_${hash}.mp4`);
-    if (fs.existsSync(videoPath)) {
+    videoPath = path.join(VIDEOS_DIR, `yt_${hash}.mp4`);
+    if (!fs.existsSync(videoPath)) {
+      await downloadFromYouTube(url, videoPath);
+    } else {
       log(`YouTube video already cached: ${videoPath}`);
-      return videoPath;
     }
-    await downloadFromYouTube(url, videoPath);
-    return videoPath;
-  }
-
-  const fileId = extractDriveFileId(url);
-  if (fileId) {
-    const videoPath = path.join(VIDEOS_DIR, `${fileId}.mp4`);
-    if (fs.existsSync(videoPath)) {
-      log(`Drive video already cached: ${videoPath}`);
-      return videoPath;
+  } else {
+    const fileId = extractDriveFileId(url);
+    if (fileId) {
+      videoPath = path.join(VIDEOS_DIR, `${fileId}.mp4`);
+      if (!fs.existsSync(videoPath)) {
+        await downloadFromDrive(fileId, videoPath);
+      } else {
+        log(`Drive video already cached: ${videoPath}`);
+      }
+    } else if (url.startsWith('http')) {
+      const filename = `${uuidv4()}.mp4`;
+      videoPath = path.join(VIDEOS_DIR, filename);
+      await downloadFromDrive(url, videoPath);
+    } else {
+      return null;
     }
-    await downloadFromDrive(fileId, videoPath);
-    return videoPath;
   }
 
-  if (url.startsWith('http')) {
-    const filename = `${uuidv4()}.mp4`;
-    const videoPath = path.join(VIDEOS_DIR, filename);
-    await downloadFromDrive(url, videoPath);
-    return videoPath;
+  // Check if video is horizontal and needs conversion
+  const dims = getVideoDimensions(videoPath);
+  if (dims) {
+    log(`Video dimensions: ${dims.width}x${dims.height}`);
+    if (dims.width > dims.height) {
+      log(`Horizontal video detected. Converting to vertical with blur background...`);
+      videoPath = await convertToVertical(videoPath);
+    }
   }
 
-  return null;
+  return videoPath;
 }
 
-// Create a concat file for FFmpeg playlist
 function createConcatFile(videoPaths) {
   const concatPath = path.join(VIDEOS_DIR, `playlist_${uuidv4().slice(0, 8)}.txt`);
   const content = videoPaths.map(p => `file '${p}'`).join('\n');
@@ -181,25 +255,21 @@ app.post('/api/stream/start', auth, async (req, res) => {
   if (currentStream) return res.status(400).json({ error: 'A stream is already running. Stop it first.' });
 
   const { streamUrl, streamKey, videoUrl, videoUrls, loop } = req.body;
-
   if (!streamKey) return res.status(400).json({ error: 'streamKey is required.' });
 
-  // Support both single videoUrl and array videoUrls
   let urls = [];
   if (videoUrls && Array.isArray(videoUrls) && videoUrls.length > 0) {
     urls = videoUrls.filter(u => u && u.trim());
   } else if (videoUrl) {
     urls = [videoUrl];
   }
-
   if (urls.length === 0) return res.status(400).json({ error: 'At least one video URL is required.' });
 
   try {
-    // Download all videos
     log(`Preparing ${urls.length} video(s)...`);
     const videoPaths = [];
     for (let i = 0; i < urls.length; i++) {
-      log(`Video ${i + 1}/${urls.length}: ${urls[i].substring(0, 60)}...`);
+      log(`Video ${i + 1}/${urls.length}: ${urls[i].substring(0, 80)}...`);
       const vp = await resolveVideo(urls[i]);
       if (!vp) return res.status(400).json({ error: `Invalid URL: ${urls[i]}` });
       try {
@@ -218,7 +288,6 @@ app.post('/api/stream/start', auth, async (req, res) => {
     let ffmpegArgs;
 
     if (videoPaths.length === 1) {
-      // Single video
       const inputArgs = loop ? ['-stream_loop', '-1'] : [];
       ffmpegArgs = [
         ...inputArgs,
@@ -230,7 +299,6 @@ app.post('/api/stream/start', auth, async (req, res) => {
         '-f', 'flv', rtmpUrl
       ];
     } else {
-      // Playlist: use concat demuxer
       const concatFile = createConcatFile(videoPaths);
       const loopArgs = loop ? ['-stream_loop', '-1'] : [];
       ffmpegArgs = [
@@ -252,11 +320,8 @@ app.post('/api/stream/start', auth, async (req, res) => {
     const streamId = uuidv4().slice(0, 8);
 
     currentStream = {
-      id: streamId,
-      process: ffmpeg,
-      startedAt: new Date().toISOString(),
-      videoUrls: urls,
-      loop: !!loop
+      id: streamId, process: ffmpeg, startedAt: new Date().toISOString(),
+      videoUrls: urls, loop: !!loop
     };
 
     ffmpeg.stderr.on('data', (data) => {
