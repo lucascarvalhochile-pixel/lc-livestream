@@ -24,9 +24,11 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 const VIDEO_HISTORY_PATH = path.join(DATA_DIR, 'video_history.json');
 const STREAM_DEFAULTS_PATH = path.join(DATA_DIR, 'stream_defaults.json');
 let currentTopTitle = '';
-// Pixel-exact boundaries measured from overlay_caribe_raw.png:
-// Header solid blue ends at y=576, footer solid blue starts at y=1173
-let overlayTopH = 577, overlayBotY = 1173;
+// Measured from overlay_caribe (941x1672 scaled to 1080x1920):
+// Top: header+wave content ends at scaled y=490 (original y=427)
+// Bottom: footer+wave content starts at scaled y=1174 (original y=1022)
+// Gradient/gray zones excluded
+let overlayTopH = 491, overlayBotY = 1174;
 
 if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
 
@@ -122,7 +124,6 @@ function splitOverlayBands() {
     const origH = info ? info.height : 0;
     log('Overlay original: ' + origW + 'x' + origH);
 
-    // Use raw directly if already 1080x1920, otherwise scale
     let srcPath = OVERLAY_RAW_PATH;
     if (origW !== 1080 || origH !== 1920) {
       execSync('ffmpeg -i "' + OVERLAY_RAW_PATH + '" -vf "scale=1080:1920:flags=lanczos" -y "' + OVERLAY_SCALED_PATH + '"', { timeout: 15000 });
@@ -130,9 +131,9 @@ function splitOverlayBands() {
       log('Overlay scaled to 1080x1920');
     }
 
-    // Crop top band: solid header (0 to overlayTopH-1)
+    // Crop top band: solid header content (0 to overlayTopH-1)
     execSync('ffmpeg -i "' + srcPath + '" -vf "crop=1080:' + overlayTopH + ':0:0" -update 1 -y "' + OVERLAY_TOP_PATH + '"', { timeout: 15000 });
-    // Crop bottom band: solid footer (overlayBotY to 1919)
+    // Crop bottom band: solid footer content (overlayBotY to 1919)
     const botH = 1920 - overlayBotY;
     execSync('ffmpeg -i "' + srcPath + '" -vf "crop=1080:' + botH + ':0:' + overlayBotY + '" -update 1 -y "' + OVERLAY_BOT_PATH + '"', { timeout: 15000 });
 
@@ -213,8 +214,10 @@ function buildOverlayFilter(useOverlay) {
   }
   if (currentTopTitle) {
     const esc = (t) => t.replace(/'/g, "'\\\\\\'''").replace(/:/g, '\\:');
-    filter += ',drawbox=x=0:y=ih*0.25:w=iw:h=ih*0.035:color=black@0.5:t=fill';
-    filter += ",drawtext=text='" + esc(currentTopTitle) + "':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=h*0.018:fontcolor=white:x=(w-text_w)/2:y=h*0.257";
+    // Title bar positioned just above the video gap (inside top band)
+    const titleY = Math.max(0, overlayTopH - 45);
+    filter += ',drawbox=x=0:y=' + titleY + ':w=iw:h=40:color=black@0.5:t=fill';
+    filter += ",drawtext=text='" + esc(currentTopTitle) + "':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=20:fontcolor=white:x=(w-text_w)/2:y=" + (titleY + 10);
   }
   if (fs.existsSync(SUBTITLE_PATH)) { filter += ",subtitles=" + SUBTITLE_PATH.replace(/:/g,'\\\\:') + ":force_style='FontSize=24,FontName=DejaVu Sans,PrimaryColour=&Hffffff,OutlineColour=&H000000,Outline=2,Alignment=2,MarginV=350'"; }
   return { filter, inputs };
@@ -315,7 +318,7 @@ app.post('/api/stream/start',auth,(req,res)=>{
       let ffmpeg,cf=null;
       if(videoPaths.length===1) ffmpeg=startSingleFFmpeg(videoPaths[0],rtmpUrl,!!loop,!!useOverlay);
       else{cf=writeConcatFile(videoPaths);ffmpeg=startFFmpegConcat(cf,rtmpUrl,!!loop);}
-      log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'on (bands)':'off')+' | topH='+overlayTopH+' botY='+overlayBotY);
+      log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'on (bands '+overlayTopH+'/'+overlayBotY+')':'off'));
       currentStream={id:uuidv4().slice(0,8),process:ffmpeg,startedAt:new Date().toISOString(),videoUrls:urls,videoPaths,loop:!!loop,useOverlay:!!useOverlay,rtmpUrl,concatFile:cf};
       attachFFmpegHandlers(ffmpeg);
       await new Promise(r=>setTimeout(r,3000));
