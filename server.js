@@ -25,10 +25,9 @@ const VIDEO_HISTORY_PATH = path.join(DATA_DIR, 'video_history.json');
 const STREAM_DEFAULTS_PATH = path.join(DATA_DIR, 'stream_defaults.json');
 let currentTopTitle = '';
 let overlayTopH = 490, overlayBotY = 1168;
-// Content boundaries (auto-detected from overlay image)
-// These are where solid blue actually ends/starts in 1080x1920 coords
-const CONTENT_TOP_END = 490;   // last solid blue row of header
-const CONTENT_BOT_START = 1168; // first solid blue row of footer
+const CONTENT_TOP_END = 490;
+const CONTENT_BOT_START = 1168;
+const FFPRESET = 'ultrafast';
 
 if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
 try { fs.unlinkSync(OVERLAY_TOP_PATH); } catch(e) {}
@@ -115,9 +114,6 @@ function downloadOverlayFromUrl(url) {
   } catch(e) { log('Overlay download error: ' + e.message); try { fs.unlinkSync(cj); } catch(ex) {} return false; }
 }
 
-// Split overlay into bands with PADDING: crop only the solid blue content,
-// then pad with edge color to reach the user's desired height.
-// This way "drag down" = more blue, never transparent/checkerboard.
 function splitOverlayBands() {
   if (fs.existsSync(OVERLAY_TOP_PATH) && fs.existsSync(OVERLAY_BOT_PATH)) { log('Overlay bands: cached'); return true; }
   if (!fs.existsSync(OVERLAY_RAW_PATH)) return false;
@@ -132,33 +128,26 @@ function splitOverlayBands() {
       srcPath = OVERLAY_SCALED_PATH;
       log('Overlay scaled to 1080x1920');
     }
-
-    // TOP BAND: crop solid content (0..CONTENT_TOP_END), pad to overlayTopH
     const topCropH = Math.min(overlayTopH, CONTENT_TOP_END);
     const topPad = Math.max(0, overlayTopH - CONTENT_TOP_END);
     if (topPad > 0) {
-      // Crop content + pad bottom with dark blue (#001050)
       execSync('ffmpeg -i "' + srcPath + '" -vf "crop=1080:' + topCropH + ':0:0,pad=1080:' + overlayTopH + ':0:0:0x001050" -update 1 -y "' + OVERLAY_TOP_PATH + '"', { timeout: 15000 });
-      log('Top band: ' + topCropH + 'px content + ' + topPad + 'px blue padding = ' + overlayTopH + 'px');
+      log('Top band: ' + topCropH + 'px content + ' + topPad + 'px padding = ' + overlayTopH + 'px');
     } else {
       execSync('ffmpeg -i "' + srcPath + '" -vf "crop=1080:' + overlayTopH + ':0:0" -update 1 -y "' + OVERLAY_TOP_PATH + '"', { timeout: 15000 });
       log('Top band: ' + overlayTopH + 'px (pure content)');
     }
-
-    // BOTTOM BAND: crop solid content (CONTENT_BOT_START..1919), pad to desired height
     const botContentH = 1920 - CONTENT_BOT_START;
     const desiredBotH = 1920 - overlayBotY;
     const botPad = Math.max(0, desiredBotH - botContentH);
     if (botPad > 0) {
-      // Crop content from CONTENT_BOT_START, pad TOP with dark blue
       execSync('ffmpeg -i "' + srcPath + '" -vf "crop=1080:' + botContentH + ':0:' + CONTENT_BOT_START + ',pad=1080:' + desiredBotH + ':0:' + botPad + ':0x001050" -update 1 -y "' + OVERLAY_BOT_PATH + '"', { timeout: 15000 });
-      log('Bot band: ' + botContentH + 'px content + ' + botPad + 'px blue padding = ' + desiredBotH + 'px');
+      log('Bot band: ' + botContentH + 'px content + ' + botPad + 'px padding = ' + desiredBotH + 'px');
     } else {
       const cropStart = 1920 - desiredBotH;
       execSync('ffmpeg -i "' + srcPath + '" -vf "crop=1080:' + desiredBotH + ':0:' + cropStart + '" -update 1 -y "' + OVERLAY_BOT_PATH + '"', { timeout: 15000 });
       log('Bot band: ' + desiredBotH + 'px (pure content from y=' + cropStart + ')');
     }
-
     const ts = fs.statSync(OVERLAY_TOP_PATH).size, bs = fs.statSync(OVERLAY_BOT_PATH).size;
     log('Bands ready: top ' + Math.round(ts/1024) + 'KB, bottom ' + Math.round(bs/1024) + 'KB');
     try { fs.unlinkSync(OVERLAY_SCALED_PATH); } catch(e) {}
@@ -192,12 +181,19 @@ function buildOverlayFilter(useOverlay) {
   return { filter, inputs };
 }
 
-function normalizeForPlaylist(ip) { return new Promise((resolve, reject) => { const hash = require('crypto').createHash('md5').update(ip+'playlist').digest('hex').slice(0,8); const out = path.join(VIDEOS_DIR, 'norm_'+hash+'.mp4'); if (fs.existsSync(out)) { resolve(out); return; } const info = getVideoInfo(ip); if(!info){reject(new Error('Bad video'));return;} let filter; if(info.width>info.height){filter='[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps=30';} else {filter='scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=30';} const ff = spawn('ffmpeg',['-i',ip,'-filter_complex',filter,'-c:v','libx264','-preset','fast','-b:v','4500k','-maxrate','6000k','-bufsize','12000k','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-ar','44100','-ac','2','-y',out]); let dur=0; try{dur=parseFloat(execSync('ffprobe -v quiet -show_entries format=duration -of csv=p=0 "'+ip+'"',{encoding:'utf8'}).trim())||0;}catch(e){} ff.stderr.on('data',(d)=>{const l=d.toString().trim();if(l.includes('frame=')&&dur>0){const tm=l.match(/time=(\d+):(\d+):(\d+\.\d+)/);if(tm){const s=parseInt(tm[1])*3600+parseInt(tm[2])*60+parseFloat(tm[3]);setProgress('normalizing','Processando: '+Math.min(99,Math.round(s/dur*100))+'%',40+Math.round(Math.min(99,s/dur*100)*0.45));}}}); ff.on('close',(code)=>{if(code===0&&fs.existsSync(out))resolve(out);else reject(new Error('Normalize failed'));}); ff.on('error',reject); }); }
+function normalizeForPlaylist(ip) { return new Promise((resolve, reject) => { const hash = require('crypto').createHash('md5').update(ip+'playlist').digest('hex').slice(0,8); const out = path.join(VIDEOS_DIR, 'norm_'+hash+'.mp4'); if (fs.existsSync(out)) { resolve(out); return; } const info = getVideoInfo(ip); if(!info){reject(new Error('Bad video'));return;} let filter; if(info.width>info.height){filter='[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps=30';} else {filter='scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=30';} const ff = spawn('ffmpeg',['-i',ip,'-filter_complex',filter,'-c:v','libx264','-preset',FFPRESET,'-b:v','4500k','-maxrate','6000k','-bufsize','12000k','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-ar','44100','-ac','2','-y',out]); let dur=0; try{dur=parseFloat(execSync('ffprobe -v quiet -show_entries format=duration -of csv=p=0 "'+ip+'"',{encoding:'utf8'}).trim())||0;}catch(e){} ff.stderr.on('data',(d)=>{const l=d.toString().trim();if(l.includes('frame=')&&dur>0){const tm=l.match(/time=(\d+):(\d+):(\d+\.\d+)/);if(tm){const s=parseInt(tm[1])*3600+parseInt(tm[2])*60+parseFloat(tm[3]);setProgress('normalizing','Processando: '+Math.min(99,Math.round(s/dur*100))+'%',40+Math.round(Math.min(99,s/dur*100)*0.45));}}}); ff.on('close',(code)=>{if(code===0&&fs.existsSync(out))resolve(out);else reject(new Error('Normalize failed'));}); ff.on('error',reject); }); }
 async function resolveVideo(videoUrl) { const url = videoUrl.trim(); if(!url) return null; let vp; if (isYouTubeUrl(url)) { const hash = require('crypto').createHash('md5').update(url).digest('hex').slice(0,12); vp = path.join(VIDEOS_DIR, 'yt_'+hash+'.mp4'); if (!fs.existsSync(vp)) { setProgress('downloading','Baixando do YouTube...',5); await downloadFromYouTube(url, vp); } else { log('YouTube cached'); setProgress('downloading','Video em cache!',80); } } else { const fid = extractDriveFileId(url); if (fid) { vp = path.join(VIDEOS_DIR, fid+'.mp4'); if(fs.existsSync(vp)){const sz=fs.statSync(vp).size;if(sz<5000000){try{if(fs.readFileSync(vp,'utf8').includes('</html>'))fs.unlinkSync(vp);}catch(e){}}} if(!fs.existsSync(vp)){setProgress('downloading','Baixando do Google Drive...',5);await downloadFromDrive(fid,vp);setProgress('downloading','Download completo!',80);} else{log('Drive cached');setProgress('downloading','Video em cache!',80);} } else if(url.startsWith('http')){vp=path.join(VIDEOS_DIR,uuidv4()+'.mp4');await downloadFromDrive(url,vp);} else return null; } setTimeout(()=>addToVideoHistory(url,vp),100); return vp; }
 async function resolveAllVideos(urls, forPlaylist, autoSubs) { const paths = []; for (let i = 0; i < urls.length; i++) { setProgress('downloading','Baixando video '+(i+1)+'/'+urls.length+'...',Math.round(i*(80/urls.length))+2); let vp = await resolveVideo(urls[i]); if(!vp) throw new Error('Invalid URL: '+urls[i]); try{execSync('ffprobe -v quiet -print_format json -show_format "'+vp+'"');}catch(e){throw new Error('Not a valid video: '+urls[i]);} if(autoSubs && i===0 && GROQ_API_KEY) await transcribeVideo(vp); if(forPlaylist && urls.length > 1) vp = await normalizeForPlaylist(vp); paths.push(vp); } return paths; }
 function writeConcatFile(vp){const p=path.join(VIDEOS_DIR,'playlist.txt');fs.writeFileSync(p,vp.map(v=>"file '"+v+"'").join('\n'));return p;}
 function startFFmpegConcat(cf,url,loop){return spawn('ffmpeg',[...(loop?['-stream_loop','-1']:[]),'-re','-f','concat','-safe','0','-i',cf,'-c','copy','-f','flv',url]);}
-function startSingleFFmpeg(vp, rtmpUrl, loop, useOverlay) { const info = getVideoInfo(vp); const la = loop ? ['-stream_loop', '-1'] : []; if (info && info.width > info.height) { const { filter, inputs } = buildOverlayFilter(useOverlay); return spawn('ffmpeg', [...la, '-re', '-i', vp, ...inputs, '-filter_complex', filter, '-c:v', 'libx264', '-preset', 'fast', '-b:v', '4500k', '-maxrate', '6000k', '-bufsize', '12000k', '-pix_fmt', 'yuv420p', '-g', '60', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-f', 'flv', rtmpUrl]); } return spawn('ffmpeg', [...la, '-re', '-i', vp, '-c:v', 'libx264', '-preset', 'fast', '-b:v', '4500k', '-maxrate', '6000k', '-bufsize', '12000k', '-pix_fmt', 'yuv420p', '-g', '60', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-f', 'flv', rtmpUrl]); }
+function startSingleFFmpeg(vp, rtmpUrl, loop, useOverlay) {
+  const info = getVideoInfo(vp); const la = loop ? ['-stream_loop', '-1'] : [];
+  if (info && info.width > info.height) {
+    const { filter, inputs } = buildOverlayFilter(useOverlay);
+    return spawn('ffmpeg', [...la, '-re', '-i', vp, ...inputs, '-filter_complex', filter, '-c:v', 'libx264', '-preset', FFPRESET, '-b:v', '4500k', '-maxrate', '6000k', '-bufsize', '12000k', '-pix_fmt', 'yuv420p', '-g', '60', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-f', 'flv', rtmpUrl]);
+  }
+  return spawn('ffmpeg', [...la, '-re', '-i', vp, '-c:v', 'libx264', '-preset', FFPRESET, '-b:v', '4500k', '-maxrate', '6000k', '-bufsize', '12000k', '-pix_fmt', 'yuv420p', '-g', '60', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-f', 'flv', rtmpUrl]);
+}
 function attachFFmpegHandlers(ff) { ff.stderr.on('data',(d)=>{const l=d.toString().trim();if(l.includes('Error')||l.includes('error')||l.includes('Output #')||(l.includes('frame=')&&Math.random()<0.02))log('[ffmpeg] '+l.substring(0,200));}); ff.on('close',(code)=>{log('Stream ended (code '+code+')');currentStream=null;}); ff.on('error',(err)=>{log('Stream error: '+err.message);currentStream=null;}); }
 
 app.get('/api/defaults',auth,(req,res)=>{res.json({streamUrl:savedDefaults.streamUrl,streamKey:savedDefaults.streamKey,account:savedDefaults.account,overlayUrl:savedDefaults.overlayUrl});});
@@ -219,7 +215,7 @@ app.post('/api/overlay-config',auth,(req,res)=>{
   res.json({ success: true, topH: overlayTopH, botY: overlayBotY, ready: overlayReady });
 });
 
-app.post('/api/stream/start',auth,(req,res)=>{ if(currentStream) return res.status(400).json({error:'Stream already running.'}); if(isProcessing) return res.status(400).json({error:'Ja esta preparando.'}); const{streamUrl,streamKey,videoUrl,videoUrls,loop,useOverlay,topTitle,autoSubs}=req.body; if(!streamKey) return res.status(400).json({error:'streamKey required.'}); let urls=[]; if(videoUrls&&Array.isArray(videoUrls)&&videoUrls.length>0) urls=videoUrls.filter(u=>u&&u.trim()); else if(videoUrl) urls=[videoUrl]; if(urls.length===0) return res.status(400).json({error:'Video URL required.'}); saveStreamDefaults({streamUrl, streamKey}); if (useOverlay && !overlayReady) setupOverlay(); isProcessing=true; currentTopTitle=(topTitle||'').trim(); resetProgress(); setProgress('downloading','Preparando '+urls.length+' video(s)...',1); log('Preparing '+urls.length+' video(s)...'+(useOverlay&&overlayReady?' overlay: '+overlayTopH+'/'+overlayBotY:'')+(autoSubs?' auto-subs':'')); res.json({success:true,status:'processing',message:'Preparando videos...'}); (async()=>{ try{ const videoPaths=await resolveAllVideos(urls,true,!!autoSubs); setProgress('starting','Conectando...',92); const baseUrl=streamUrl&&streamUrl.trim()?streamUrl.trim().replace(/\/$/,''):'rtmps://live-upload.instagram.com:443/rtmp'; const rtmpUrl=baseUrl+'/'+streamKey; let ffmpeg,cf=null; if(videoPaths.length===1) ffmpeg=startSingleFFmpeg(videoPaths[0],rtmpUrl,!!loop,!!useOverlay); else{cf=writeConcatFile(videoPaths);ffmpeg=startFFmpegConcat(cf,rtmpUrl,!!loop);} log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'on ('+overlayTopH+'/'+overlayBotY+')':'off')); currentStream={id:uuidv4().slice(0,8),process:ffmpeg,startedAt:new Date().toISOString(),videoUrls:urls,videoPaths,loop:!!loop,useOverlay:!!useOverlay,rtmpUrl,concatFile:cf}; attachFFmpegHandlers(ffmpeg); await new Promise(r=>setTimeout(r,3000)); if(currentStream){setProgress('live','Ao vivo!',100);setTimeout(resetProgress,5000);} else resetProgress(); }catch(err){log('Error: '+err.message);resetProgress();currentStream=null;} finally{isProcessing=false;} })(); });
+app.post('/api/stream/start',auth,(req,res)=>{ if(currentStream) return res.status(400).json({error:'Stream already running.'}); if(isProcessing) return res.status(400).json({error:'Ja esta preparando.'}); const{streamUrl,streamKey,videoUrl,videoUrls,loop,useOverlay,topTitle,autoSubs}=req.body; if(!streamKey) return res.status(400).json({error:'streamKey required.'}); let urls=[]; if(videoUrls&&Array.isArray(videoUrls)&&videoUrls.length>0) urls=videoUrls.filter(u=>u&&u.trim()); else if(videoUrl) urls=[videoUrl]; if(urls.length===0) return res.status(400).json({error:'Video URL required.'}); saveStreamDefaults({streamUrl, streamKey}); if (useOverlay && !overlayReady) setupOverlay(); isProcessing=true; currentTopTitle=(topTitle||'').trim(); resetProgress(); setProgress('downloading','Preparando '+urls.length+' video(s)...',1); log('Preparing '+urls.length+' video(s) [preset='+FFPRESET+']'+(useOverlay&&overlayReady?' overlay: '+overlayTopH+'/'+overlayBotY:'')+(autoSubs?' auto-subs':'')); res.json({success:true,status:'processing',message:'Preparando videos...'}); (async()=>{ try{ const videoPaths=await resolveAllVideos(urls,true,!!autoSubs); setProgress('starting','Conectando...',92); const baseUrl=streamUrl&&streamUrl.trim()?streamUrl.trim().replace(/\/$/,''):'rtmps://live-upload.instagram.com:443/rtmp'; const rtmpUrl=baseUrl+'/'+streamKey; let ffmpeg,cf=null; if(videoPaths.length===1) ffmpeg=startSingleFFmpeg(videoPaths[0],rtmpUrl,!!loop,!!useOverlay); else{cf=writeConcatFile(videoPaths);ffmpeg=startFFmpegConcat(cf,rtmpUrl,!!loop);} log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'on ('+overlayTopH+'/'+overlayBotY+')':'off')+' | preset: '+FFPRESET); currentStream={id:uuidv4().slice(0,8),process:ffmpeg,startedAt:new Date().toISOString(),videoUrls:urls,videoPaths,loop:!!loop,useOverlay:!!useOverlay,rtmpUrl,concatFile:cf}; attachFFmpegHandlers(ffmpeg); await new Promise(r=>setTimeout(r,3000)); if(currentStream){setProgress('live','Ao vivo!',100);setTimeout(resetProgress,5000);} else resetProgress(); }catch(err){log('Error: '+err.message);resetProgress();currentStream=null;} finally{isProcessing=false;} })(); });
 app.post('/api/stream/swap',auth,async(req,res)=>{if(!currentStream)return res.status(400).json({error:'No stream.'});const{videoUrl,videoUrls}=req.body;let urls=[];if(videoUrls&&Array.isArray(videoUrls)&&videoUrls.length>0)urls=videoUrls.filter(u=>u&&u.trim());else if(videoUrl)urls=[videoUrl];if(urls.length===0)return res.status(400).json({error:'URL required.'});try{const np=await resolveAllVideos(urls,true,false);if(currentStream.concatFile){fs.writeFileSync(currentStream.concatFile,np.map(p=>"file '"+p+"'").join('\n'));currentStream.videoUrls=urls;currentStream.videoPaths=np;res.json({success:true,message:'Playlist updated.'});}else{await doSwap(urls,np);res.json({success:true,message:'Swapped!'}); }}catch(err){res.status(500).json({error:err.message});}});
 app.post('/api/stream/swap-now',auth,async(req,res)=>{if(!currentStream)return res.status(400).json({error:'No stream.'});const{videoUrl,videoUrls}=req.body;let urls=[];if(videoUrls&&Array.isArray(videoUrls)&&videoUrls.length>0)urls=videoUrls.filter(u=>u&&u.trim());else if(videoUrl)urls=[videoUrl];if(urls.length===0)return res.status(400).json({error:'URL required.'});try{const np=await resolveAllVideos(urls,true,false);await doSwap(urls,np);res.json({success:true,message:'Swapped!'});}catch(err){res.status(500).json({error:err.message});}});
 async function doSwap(urls,np){currentStream.process.removeAllListeners('close');currentStream.process.kill('SIGTERM');await new Promise(r=>setTimeout(r,1000));let ff,cf=null;if(np.length===1)ff=startSingleFFmpeg(np[0],currentStream.rtmpUrl,currentStream.loop,currentStream.useOverlay);else{cf=writeConcatFile(np);ff=startFFmpegConcat(cf,currentStream.rtmpUrl,currentStream.loop);}currentStream.process=ff;currentStream.videoUrls=urls;currentStream.videoPaths=np;currentStream.concatFile=cf;attachFFmpegHandlers(ff);await new Promise(r=>setTimeout(r,3000));if(currentStream)log('Swap OK');else throw new Error('Reconnect failed');}
@@ -228,6 +224,6 @@ app.get('/api/stream/status',auth,(req,res)=>{if(!currentStream)return res.json(
 app.get('/api/logs',auth,(req,res)=>{res.json({logs:streamLogs.slice(-100)});});
 app.post('/api/cache/clear',auth,(req,res)=>{const files=fs.readdirSync(VIDEOS_DIR);let rm=0;files.forEach(f=>{fs.unlinkSync(path.join(VIDEOS_DIR,f));rm++;});res.json({success:true,removed:rm});});
 app.post('/api/subtitles',auth,(req,res)=>{const{srt}=req.body;if(!srt||!srt.trim()){if(fs.existsSync(SUBTITLE_PATH))fs.unlinkSync(SUBTITLE_PATH);return res.json({success:true,message:'Removed.'});}fs.writeFileSync(SUBTITLE_PATH,srt.trim());res.json({success:true,message:'Saved.'});});
-app.get('/health',(req,res)=>{res.json({status:'ok',streaming:!!currentStream,processing:isProcessing,overlay:overlayReady?'on':'off',crop:overlayTopH+'/'+overlayBotY,dataDir:DATA_DIR});});
+app.get('/health',(req,res)=>{res.json({status:'ok',streaming:!!currentStream,processing:isProcessing,overlay:overlayReady?'on':'off',crop:overlayTopH+'/'+overlayBotY,preset:FFPRESET,dataDir:DATA_DIR});});
 
-(()=>{ loadVideoHistory(); loadStreamDefaults(); setupOverlay(); app.listen(PORT,()=>{log('LC LiveStream on port '+PORT+' | data: '+DATA_DIR); log('Overlay: topH='+overlayTopH+' botY='+overlayBotY+(overlayReady?' READY':' not ready')); if(GROQ_API_KEY)log('Whisper: ready'); log('History: '+videoHistory.length);}); })();
+(()=>{ loadVideoHistory(); loadStreamDefaults(); setupOverlay(); app.listen(PORT,()=>{log('LC LiveStream on port '+PORT+' | preset: '+FFPRESET+' | data: '+DATA_DIR); log('Overlay: topH='+overlayTopH+' botY='+overlayBotY+(overlayReady?' READY':' not ready')); if(GROQ_API_KEY)log('Whisper: ready'); log('History: '+videoHistory.length);}); })();
