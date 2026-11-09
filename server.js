@@ -14,9 +14,6 @@ const PORT = process.env.PORT || 3000;
 const ADMIN_KEY = process.env.ADMIN_KEY || 'lc-live-2026';
 const VIDEOS_DIR = '/tmp/videos';
 const DATA_DIR = fs.existsSync('/data') ? '/data' : VIDEOS_DIR;
-const DEFAULT_STREAM_URL = process.env.DEFAULT_STREAM_URL || '';
-const DEFAULT_STREAM_KEY = process.env.DEFAULT_STREAM_KEY || '';
-const DEFAULT_ACCOUNT = process.env.DEFAULT_ACCOUNT || '';
 const OVERLAY_NAME = process.env.OVERLAY_NAME || '';
 const OVERLAY_DESTINATIONS = process.env.OVERLAY_DESTINATIONS || '';
 const OVERLAY_CTA = process.env.OVERLAY_CTA || '';
@@ -25,9 +22,25 @@ const OVERLAY_IMG_PATH = path.join(DATA_DIR, 'overlay_branded.img');
 const SUBTITLE_PATH = path.join(VIDEOS_DIR, 'current_subtitles.srt');
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 const VIDEO_HISTORY_PATH = path.join(DATA_DIR, 'video_history.json');
+const STREAM_DEFAULTS_PATH = path.join(DATA_DIR, 'stream_defaults.json');
 let currentTopTitle = '';
 
 if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
+
+// Persistent stream defaults: saved in /data, survives deploys
+let savedDefaults = { streamUrl: '', streamKey: '', account: '' };
+function loadStreamDefaults() {
+  // Load from persistent volume first
+  try { if (fs.existsSync(STREAM_DEFAULTS_PATH)) { savedDefaults = JSON.parse(fs.readFileSync(STREAM_DEFAULTS_PATH, 'utf8')); log('Stream defaults loaded from ' + DATA_DIR); return; } } catch(e) {}
+  // Seed from env vars if no saved file
+  savedDefaults = { streamUrl: process.env.DEFAULT_STREAM_URL || '', streamKey: process.env.DEFAULT_STREAM_KEY || '', account: process.env.DEFAULT_ACCOUNT || '' };
+}
+function saveStreamDefaults(streamUrl, streamKey, account) {
+  if (streamUrl) savedDefaults.streamUrl = streamUrl;
+  if (streamKey) savedDefaults.streamKey = streamKey;
+  if (account) savedDefaults.account = account;
+  try { fs.writeFileSync(STREAM_DEFAULTS_PATH, JSON.stringify(savedDefaults, null, 2)); } catch(e) { log('Failed to save defaults: ' + e.message); }
+}
 
 let currentStream = null;
 let streamLogs = [];
@@ -67,7 +80,6 @@ function addToVideoHistory(url, videoPath) {
     else if (extractDriveFileId(url)) {
       source = 'drive';
       const fid = extractDriveFileId(url);
-      // Try to get the Drive file name from the sharing page title
       try {
         const html = execSync('curl -s -L "https://drive.google.com/file/d/' + fid + '/view" 2>/dev/null | head -c 5000', { encoding: 'utf8', timeout: 10000 });
         const tm = html.match(/<title>([^<]+)<\/title>/i);
@@ -94,7 +106,6 @@ function extractDriveFileId(url) { let m = url.match(/\/file\/d\/([a-zA-Z0-9_-]+
 function isYouTubeUrl(url) { return /(?:youtube\.com|youtu\.be)/.test(url); }
 function getVideoInfo(videoPath) { try { const r = execSync('ffprobe -v quiet -print_format json -show_streams -show_format "' + videoPath + '"', { encoding: 'utf8' }); const d = JSON.parse(r); const vs = d.streams.find(s => s.codec_type === 'video'); return vs ? { width: vs.width, height: vs.height } : null; } catch (e) { return null; } }
 
-// Download overlay image from Google Drive URL
 function downloadOverlayFromUrl(url) {
   const fid = extractDriveFileId(url);
   if (!fid) { log('OVERLAY_URL: no Drive file ID found'); return false; }
@@ -122,11 +133,9 @@ function downloadOverlayFromUrl(url) {
   } catch(e) { log('Overlay download error: ' + e.message); try { fs.unlinkSync(cookieJar); } catch(ex) {} return false; }
 }
 
-// Setup overlay: try cached in /data, then .b64 from repo, then OVERLAY_URL
 function setupOverlay() {
   if (!OVERLAY_NAME) { overlayReady = false; return; }
   if (fs.existsSync(OVERLAY_IMG_PATH)) { log('Overlay: cached in ' + DATA_DIR); overlayReady = true; return; }
-  // Try .b64 files in /app/overlays/
   const overlayDir = path.join('/app', 'overlays');
   if (fs.existsSync(overlayDir)) {
     const files = fs.readdirSync(overlayDir).filter(f => f.endsWith('.b64'));
@@ -134,20 +143,12 @@ function setupOverlay() {
       try {
         const b64 = fs.readFileSync(path.join(overlayDir, files[0]), 'utf8').trim();
         const buf = Buffer.from(b64, 'base64');
-        if (buf.length >= 10000) {
-          fs.writeFileSync(OVERLAY_IMG_PATH, buf);
-          log('Overlay decoded: ' + Math.round(buf.length / 1024) + 'KB from ' + files[0]);
-          overlayReady = true; return;
-        }
+        if (buf.length >= 10000) { fs.writeFileSync(OVERLAY_IMG_PATH, buf); log('Overlay decoded: ' + Math.round(buf.length / 1024) + 'KB from ' + files[0]); overlayReady = true; return; }
         log('Overlay .b64 too small (' + buf.length + 'B), trying URL...');
       } catch(e) { log('Overlay decode error: ' + e.message); }
     }
   }
-  // Fallback: download from OVERLAY_URL (Google Drive)
-  if (OVERLAY_URL) {
-    overlayReady = downloadOverlayFromUrl(OVERLAY_URL);
-    if (overlayReady) return;
-  }
+  if (OVERLAY_URL) { overlayReady = downloadOverlayFromUrl(OVERLAY_URL); if (overlayReady) return; }
   log('No overlay found'); overlayReady = false;
 }
 
@@ -206,7 +207,6 @@ function transcribeVideo(videoPath) {
   });
 }
 
-// Build FFmpeg filter for horizontal video with JPEG chromakey overlay (real-time)
 function buildOverlayFilter(useOverlay) {
   let filter = '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2';
   const inputs = [];
@@ -297,7 +297,9 @@ function attachFFmpegHandlers(ff) {
   ff.on('error',(err)=>{log('Stream error: '+err.message);currentStream=null;});
 }
 
-app.get('/api/defaults',auth,(req,res)=>{res.json({streamUrl:DEFAULT_STREAM_URL,streamKey:DEFAULT_STREAM_KEY,account:DEFAULT_ACCOUNT});});
+// API endpoints
+app.get('/api/defaults',auth,(req,res)=>{res.json({streamUrl:savedDefaults.streamUrl,streamKey:savedDefaults.streamKey,account:savedDefaults.account});});
+app.post('/api/save-defaults',auth,(req,res)=>{const{streamUrl,streamKey,account}=req.body;saveStreamDefaults(streamUrl,streamKey,account);res.json({success:true,message:'Defaults saved.'});});
 app.get('/api/overlay',auth,(req,res)=>{res.json({name:OVERLAY_NAME,destinations:OVERLAY_DESTINATIONS,cta:OVERLAY_CTA,pngReady:overlayReady,active:!!OVERLAY_NAME&&overlayReady,whisperReady:!!GROQ_API_KEY});});
 app.get('/api/progress',auth,(req,res)=>{res.json(streamProgress);});
 app.get('/api/video-history',auth,(req,res)=>{res.json(videoHistory);});
@@ -309,6 +311,8 @@ app.post('/api/stream/start',auth,(req,res)=>{
   if(!streamKey) return res.status(400).json({error:'streamKey required.'});
   let urls=[]; if(videoUrls&&Array.isArray(videoUrls)&&videoUrls.length>0) urls=videoUrls.filter(u=>u&&u.trim()); else if(videoUrl) urls=[videoUrl];
   if(urls.length===0) return res.status(400).json({error:'Video URL required.'});
+  // Save RTMP defaults persistently
+  saveStreamDefaults(streamUrl, streamKey, '');
   isProcessing=true; currentTopTitle=(topTitle||'').trim();
   resetProgress(); setProgress('downloading','Preparando '+urls.length+' video(s)...',1);
   log('Preparing '+urls.length+' video(s)...'+(useOverlay&&OVERLAY_NAME?' overlay: '+OVERLAY_NAME:'')+(currentTopTitle?' title: '+currentTopTitle:'')+(autoSubs?' auto-subs':''));
@@ -374,12 +378,13 @@ app.get('/api/stream/status',auth,(req,res)=>{
 });
 
 app.get('/api/logs',auth,(req,res)=>{res.json({logs:streamLogs.slice(-100)});});
-app.post('/api/cache/clear',auth,(req,res)=>{const files=fs.readdirSync(VIDEOS_DIR);let rm=0;files.forEach(f=>{if(f==='video_history.json')return;fs.unlinkSync(path.join(VIDEOS_DIR,f));rm++;});res.json({success:true,removed:rm});});
+app.post('/api/cache/clear',auth,(req,res)=>{const files=fs.readdirSync(VIDEOS_DIR);let rm=0;files.forEach(f=>{fs.unlinkSync(path.join(VIDEOS_DIR,f));rm++;});res.json({success:true,removed:rm});});
 app.post('/api/subtitles',auth,(req,res)=>{const{srt}=req.body;if(!srt||!srt.trim()){if(fs.existsSync(SUBTITLE_PATH))fs.unlinkSync(SUBTITLE_PATH);return res.json({success:true,message:'Removed.'});}fs.writeFileSync(SUBTITLE_PATH,srt.trim());res.json({success:true,message:'Saved.'});});
-app.get('/health',(req,res)=>{res.json({status:'ok',streaming:!!currentStream,processing:isProcessing,overlay:OVERLAY_NAME||'off',dataDir:DATA_DIR});});
+app.get('/health',(req,res)=>{res.json({status:'ok',streaming:!!currentStream,processing:isProcessing,overlay:OVERLAY_NAME||'off',dataDir:DATA_DIR,defaultsSaved:fs.existsSync(STREAM_DEFAULTS_PATH)});});
 
 (()=>{
   loadVideoHistory();
+  loadStreamDefaults();
   setupOverlay();
-  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT+' | data: '+DATA_DIR);if(OVERLAY_NAME)log('Overlay: '+OVERLAY_NAME+' | Ready: '+(overlayReady?'yes (chromakey)':'NO')+' | URL: '+(OVERLAY_URL?'set':'none'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length+' videos');});
+  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT+' | data: '+DATA_DIR);log('Defaults: '+(savedDefaults.streamKey?'saved (key: ...'+savedDefaults.streamKey.slice(-6)+')':'none'));if(OVERLAY_NAME)log('Overlay: '+OVERLAY_NAME+' | Ready: '+(overlayReady?'yes':'NO'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length+' videos');});
 })();
