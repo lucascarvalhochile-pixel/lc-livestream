@@ -4,85 +4,91 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LC LiveStream</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; }
+    body { font-family: 'Figtree', -apple-system, BlinkMacSystemFont, sans-serif; background: #001228; color: #e0e6f0; min-height: 100vh; }
     .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
-    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; padding-bottom: 16px; border-bottom: 1px solid #222; }
-    .header h1 { font-size: 20px; font-weight: 700; color: #fff; }
-    .header .brand { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
-    .header .account { font-size: 13px; color: #0095f6; font-weight: 600; }
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; padding-bottom: 16px; border-bottom: 1px solid rgba(1,0,254,0.2); }
+    .header h1 { font-family: 'Sora', sans-serif; font-size: 20px; font-weight: 700; color: #fff; }
+    .header .brand { font-size: 12px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 1px; font-weight: 500; }
+    .header .account { font-size: 13px; color: #0100FE; font-weight: 600; }
     .status-bar { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-radius: 10px; margin-bottom: 24px; font-weight: 600; font-size: 14px; }
-    .status-bar.offline { background: #1a1a1a; border: 1px solid #333; color: #888; }
-    .status-bar.live { background: #1a0a0a; border: 1px solid #c0392b; color: #e74c3c; animation: pulse-border 2s infinite; }
-    .status-bar.processing { background: #1a1a0a; border: 1px solid #f39c12; color: #f39c12; }
-    @keyframes pulse-border { 0%, 100% { border-color: #c0392b; } 50% { border-color: #e74c3c; } }
+    .status-bar.offline { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.4); }
+    .status-bar.live { background: rgba(1,0,254,0.08); border: 1px solid #0100FE; color: #fff; animation: pulse-border 2s infinite; }
+    .status-bar.processing { background: rgba(185,134,0,0.08); border: 1px solid #B98600; color: #B98600; }
+    @keyframes pulse-border { 0%, 100% { border-color: #0100FE; } 50% { border-color: #021CDE; } }
     .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-    .dot.off { background: #555; } .dot.on { background: #e74c3c; animation: blink 1s infinite; } .dot.prep { background: #f39c12; animation: blink 1.5s infinite; }
+    .dot.off { background: rgba(255,255,255,0.2); } .dot.on { background: #0100FE; animation: blink 1s infinite; } .dot.prep { background: #B98600; animation: blink 1.5s infinite; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-    .card { background: #141414; border: 1px solid #222; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
-    .card h2 { font-size: 14px; font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
-    label { display: block; font-size: 13px; color: #888; margin-bottom: 6px; font-weight: 500; }
-    input[type="text"], input[type="password"], textarea { width: 100%; padding: 12px 14px; background: #0a0a0a; border: 1px solid #333; border-radius: 8px; color: #fff; font-size: 14px; margin-bottom: 10px; outline: none; transition: border-color 0.2s; font-family: inherit; }
+    .card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+    .card h2 { font-family: 'Sora', sans-serif; font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+    label { display: block; font-size: 13px; color: rgba(255,255,255,0.5); margin-bottom: 6px; font-weight: 500; }
+    input[type="text"], input[type="password"], textarea { width: 100%; padding: 12px 14px; background: rgba(0,18,40,0.6); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; color: #fff; font-size: 14px; margin-bottom: 10px; outline: none; transition: border-color 0.2s; font-family: 'Figtree', sans-serif; }
     textarea { resize: vertical; min-height: 44px; }
-    input:focus, textarea:focus { border-color: #0095f6; }
+    input:focus, textarea:focus { border-color: #0100FE; }
+    input::placeholder, textarea::placeholder { color: rgba(255,255,255,0.2); }
     .checkbox-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
-    .checkbox-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: #0095f6; }
-    .checkbox-row label { margin-bottom: 0; font-size: 14px; color: #ccc; }
-    .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
-    .btn-start { background: #0095f6; color: #fff; } .btn-start:hover { background: #0077cc; } .btn-start:disabled { background: #333; color: #666; cursor: not-allowed; }
-    .btn-stop { background: #e74c3c; color: #fff; } .btn-stop:hover { background: #c0392b; }
-    .btn-swap { background: #f39c12; color: #fff; margin-top: 10px; } .btn-swap:hover { background: #e67e22; } .btn-swap:disabled { background: #333; color: #666; cursor: not-allowed; }
-    .btn-secondary { background: #222; color: #999; font-size: 12px; padding: 10px; margin-top: 8px; } .btn-secondary:hover { background: #333; color: #ccc; }
-    .btn-add { background: #1a1a1a; border: 1px dashed #444; color: #888; font-size: 13px; padding: 10px; margin-bottom: 14px; border-radius: 8px; cursor: pointer; width: 100%; } .btn-add:hover { border-color: #0095f6; color: #0095f6; }
-    .btn-remove { background: none; border: none; color: #666; font-size: 18px; cursor: pointer; padding: 4px 8px; } .btn-remove:hover { color: #e74c3c; }
+    .checkbox-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: #0100FE; }
+    .checkbox-row label { margin-bottom: 0; font-size: 14px; color: rgba(255,255,255,0.7); }
+    .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px; font-family: 'Sora', sans-serif; }
+    .btn-start { background: #0100FE; color: #fff; } .btn-start:hover { background: #021CDE; } .btn-start:disabled { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3); cursor: not-allowed; }
+    .btn-stop { background: transparent; color: #fff; border: 2px solid rgba(255,255,255,0.3); } .btn-stop:hover { border-color: #fff; background: rgba(255,255,255,0.05); }
+    .btn-swap { background: #B98600; color: #fff; margin-top: 10px; } .btn-swap:hover { background: #a07400; } .btn-swap:disabled { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3); cursor: not-allowed; }
+    .btn-swap-now { background: transparent; color: #B98600; border: 1px solid #B98600; margin-top: 10px; font-family: 'Sora', sans-serif; font-weight: 700; font-size: 15px; text-transform: uppercase; letter-spacing: 0.5px; padding: 14px; border-radius: 10px; cursor: pointer; width: 100%; transition: all 0.2s; } .btn-swap-now:hover { background: rgba(185,134,0,0.1); }
+    .btn-secondary { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.4); font-size: 12px; padding: 10px; margin-top: 8px; border: 1px solid rgba(255,255,255,0.08); } .btn-secondary:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7); }
+    .btn-add { background: transparent; border: 1px dashed rgba(255,255,255,0.15); color: rgba(255,255,255,0.4); font-size: 13px; padding: 10px; margin-bottom: 14px; border-radius: 8px; cursor: pointer; width: 100%; font-family: 'Figtree', sans-serif; } .btn-add:hover { border-color: #0100FE; color: #0100FE; }
+    .btn-remove { background: none; border: none; color: rgba(255,255,255,0.3); font-size: 18px; cursor: pointer; padding: 4px 8px; } .btn-remove:hover { color: #fff; }
     .video-row { display: flex; align-items: center; gap: 8px; }
     .video-row input { flex: 1; margin-bottom: 8px; }
-    .video-row .num { font-size: 12px; color: #555; min-width: 20px; margin-bottom: 8px; }
-    .logs { background: #0a0a0a; border: 1px solid #222; border-radius: 8px; padding: 14px; max-height: 240px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.6; color: #666; }
-    .logs .log-entry { margin-bottom: 2px; } .logs .log-entry.error { color: #e74c3c; } .logs .log-entry.success { color: #2ecc71; }
-    .uptime { font-size: 28px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; margin-top: 4px; }
-    .help { font-size: 12px; color: #555; margin-top: 8px; line-height: 1.5; }
-    .prefilled { border-color: #2ecc71 !important; } .prefilled-label { color: #2ecc71; font-size: 11px; margin-bottom: 4px; }
+    .video-row .num { font-size: 12px; color: rgba(255,255,255,0.3); min-width: 20px; margin-bottom: 8px; }
+    .logs { background: rgba(0,18,40,0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 14px; max-height: 240px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.6; color: rgba(255,255,255,0.35); }
+    .logs .log-entry { margin-bottom: 2px; } .logs .log-entry.error { color: #B98600; } .logs .log-entry.success { color: #2ecc71; }
+    .uptime { font-family: 'Sora', sans-serif; font-size: 28px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; margin-top: 4px; }
+    .help { font-size: 12px; color: rgba(255,255,255,0.3); margin-top: 16px; line-height: 1.6; }
+    .prefilled { border-color: #0100FE !important; } .prefilled-label { color: #0100FE; font-size: 11px; margin-bottom: 4px; }
     .login-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80vh; gap: 16px; }
-    .login-screen h1 { font-size: 24px; color: #fff; } .login-screen input { max-width: 300px; text-align: center; } .login-screen .btn { max-width: 300px; }
-    .toggle-details { font-size: 12px; color: #666; cursor: pointer; margin-bottom: 10px; } .toggle-details:hover { color: #999; }
+    .login-screen h1 { font-family: 'Sora', sans-serif; font-size: 28px; color: #fff; font-weight: 800; } .login-screen input { max-width: 300px; text-align: center; } .login-screen .btn { max-width: 300px; }
+    .login-screen p { color: rgba(255,255,255,0.35); font-size: 13px; }
+    .toggle-details { font-size: 12px; color: rgba(255,255,255,0.35); cursor: pointer; margin-bottom: 10px; } .toggle-details:hover { color: rgba(255,255,255,0.6); }
     .details-hidden { display: none; }
-    .source-hint { font-size: 11px; color: #555; margin-bottom: 14px; }
-    .swap-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid #222; }
-    .swap-section h3 { font-size: 13px; color: #f39c12; margin-bottom: 10px; font-weight: 600; }
-    .overlay-info { font-size: 11px; color: #0100FE; margin-bottom: 14px; padding: 8px 12px; background: rgba(1,0,254,0.08); border: 1px solid rgba(1,0,254,0.2); border-radius: 8px; }
-    .progress-container { display: none; margin-bottom: 16px; padding: 16px; background: #111; border: 1px solid #222; border-radius: 10px; }
+    .source-hint { font-size: 11px; color: rgba(255,255,255,0.25); margin-bottom: 14px; }
+    .swap-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08); }
+    .swap-section h3 { font-size: 13px; color: #B98600; margin-bottom: 10px; font-weight: 600; }
+    .overlay-info { font-size: 11px; color: #0100FE; margin-bottom: 14px; padding: 8px 12px; background: rgba(1,0,254,0.06); border: 1px solid rgba(1,0,254,0.15); border-radius: 8px; }
+    .progress-container { display: none; margin-bottom: 16px; padding: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; }
     .progress-container.active { display: block; }
     .progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-    .progress-stage { font-size: 13px; font-weight: 600; color: #0095f6; }
-    .progress-pct { font-size: 13px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
-    .progress-msg { font-size: 12px; color: #999; margin-bottom: 8px; min-height: 16px; }
-    .progress-track { width: 100%; height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
-    .progress-fill { height: 100%; background: linear-gradient(90deg, #0095f6, #2ecc71); border-radius: 3px; transition: width 0.5s ease; width: 0%; }
+    .progress-stage { font-size: 13px; font-weight: 600; color: #0100FE; }
+    .progress-pct { font-family: 'Sora', sans-serif; font-size: 13px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+    .progress-msg { font-size: 12px; color: rgba(255,255,255,0.5); margin-bottom: 8px; min-height: 16px; }
+    .progress-track { width: 100%; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #0100FE, #021CDE); border-radius: 3px; transition: width 0.5s ease; width: 0%; }
     .history-section { margin-bottom: 14px; }
-    .history-title { font-size: 12px; color: #666; margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .history-title { font-size: 12px; color: rgba(255,255,255,0.35); margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
     .history-grid { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; -webkit-overflow-scrolling: touch; }
-    .history-grid::-webkit-scrollbar { height: 4px; } .history-grid::-webkit-scrollbar-track { background: transparent; } .history-grid::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
-    .history-card { flex-shrink: 0; width: 160px; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; overflow: hidden; cursor: pointer; transition: all 0.2s; }
-    .history-card:hover { border-color: #0095f6; background: #1e1e2a; }
-    .hc-thumb { width: 100%; height: 80px; background: #111; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .history-grid::-webkit-scrollbar { height: 4px; } .history-grid::-webkit-scrollbar-track { background: transparent; } .history-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+    .history-card { flex-shrink: 0; width: 160px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; overflow: hidden; cursor: pointer; transition: all 0.2s; }
+    .history-card:hover { border-color: #0100FE; background: rgba(1,0,254,0.06); }
+    .hc-thumb { width: 100%; height: 80px; background: rgba(0,18,40,0.6); display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .hc-thumb img { width: 100%; height: 100%; object-fit: cover; }
-    .hc-thumb .hc-icon { font-size: 28px; color: #333; }
+    .hc-thumb .hc-icon { font-size: 28px; color: rgba(255,255,255,0.15); }
     .hc-body { padding: 8px 10px; }
-    .hc-label { font-size: 11px; color: #ccc; line-height: 1.3; max-height: 30px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin-bottom: 4px; }
-    .hc-meta { font-size: 10px; color: #555; display: flex; gap: 6px; align-items: center; }
+    .hc-label { font-size: 11px; color: rgba(255,255,255,0.7); line-height: 1.3; max-height: 30px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin-bottom: 4px; }
+    .hc-meta { font-size: 10px; color: rgba(255,255,255,0.3); display: flex; gap: 6px; align-items: center; }
     .hc-badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
-    .hc-badge.yt { background: rgba(255,0,0,0.15); color: #f44; }
-    .hc-badge.drive { background: rgba(66,133,244,0.15); color: #4285f4; }
-    .hc-badge.horiz { background: rgba(46,204,113,0.1); color: #2ecc71; }
-    .hc-badge.vert { background: rgba(155,89,182,0.1); color: #9b59b6; }
+    .hc-badge.yt { background: rgba(1,0,254,0.1); color: #0100FE; }
+    .hc-badge.drive { background: rgba(66,133,244,0.1); color: #4285f4; }
+    .hc-badge.horiz { background: rgba(46,204,113,0.08); color: #2ecc71; }
+    .hc-badge.vert { background: rgba(185,134,0,0.08); color: #B98600; }
   </style>
 </head>
 <body>
   <div id="login" class="container login-screen">
     <h1>LC LiveStream</h1>
-    <p style="color: #666; font-size: 13px;">Simulive para Instagram</p>
+    <p>Simulive para Instagram</p>
     <input type="password" id="adminKey" placeholder="Senha de acesso" onkeydown="if(event.key==='Enter') doLogin()">
     <button class="btn btn-start" onclick="doLogin()" style="max-width:300px">Entrar</button>
   </div>
@@ -125,9 +131,9 @@
         <input type="text" id="streamUrl" placeholder="rtmps://...fbcdn.net:443/rtmp/" onblur="autoSaveDefaults()">
         <label>Stream Key</label>
         <textarea id="streamKey" rows="2" placeholder="Cole a chave de stream" onblur="autoSaveDefaults()"></textarea>
-        <label>Overlay (link do Drive com fundo verde)</label>
+        <label>Overlay (link do Drive)</label>
         <input type="text" id="overlayUrl" placeholder="https://drive.google.com/file/d/..." onblur="autoSaveDefaults()">
-        <div class="source-hint">PNG com fundo verde (chromakey). Mude o link pra trocar o overlay sem deploy.</div>
+        <div class="source-hint">Imagem 1080x1920 (vertical). Mude o link pra trocar o overlay sem deploy.</div>
       </div>
       <button class="btn btn-start" id="btnStart" onclick="startStream()">Iniciar Live</button>
       <p class="help">1. No Instagram (desktop): Criar &rarr; Video ao vivo &rarr; Avancar<br>2. Aqui: adicione os videos e clique Iniciar<br>3. No Instagram: clique "Transmitir ao vivo" quando o preview aparecer</p>
@@ -135,15 +141,15 @@
     <div id="livePanel" class="card" style="display:none">
       <h2>Ao Vivo</h2>
       <div class="uptime" id="uptime">00:00:00</div>
-      <div id="liveVideoCount" style="font-size:13px;color:#888;margin-top:4px;"></div>
+      <div id="liveVideoCount" style="font-size:13px;color:rgba(255,255,255,0.5);margin-top:4px;"></div>
       <div id="liveOverlayInfo" style="font-size:12px;color:#0100FE;margin-top:4px;"></div>
-      <div style="margin-top:16px;"><button class="btn btn-stop" onclick="stopStream()">Parar Live</button></div>
+      <div style="margin-top:16px;"><button class="btn btn-stop" onclick="stopStream()">Encerrar Live</button></div>
       <div class="swap-section">
         <h3>Trocar video sem parar a live</h3>
         <div id="swapVideoList"><div class="video-row"><span class="num">1.</span><input type="text" placeholder="Novo video (Drive ou YouTube)"></div></div>
         <button class="btn-add" onclick="addSwapVideoField()">+ Adicionar video</button>
         <button class="btn btn-swap" id="btnSwap" onclick="swapVideos(false)">Trocar (quando o atual terminar)</button>
-        <button class="btn btn-swap" id="btnSwapNow" onclick="swapVideos(true)" style="background:#e67e22;">Trocar agora (pausa de ~3s)</button>
+        <button class="btn-swap-now" id="btnSwapNow" onclick="swapVideos(true)">Trocar agora (pausa de ~3s)</button>
       </div>
     </div>
     <div class="card">
@@ -158,7 +164,7 @@
     function doLogin(){KEY=document.getElementById('adminKey').value;if(!KEY)return;fetch('/api/stream/status?key='+KEY).then(r=>{if(r.status===401){alert('Senha incorreta');return;}document.getElementById('login').style.display='none';document.getElementById('dashboard').style.display='block';loadDefaults();loadOverlayInfo();loadVideoHistory();startPolling();fetchLogs();}).catch(()=>alert('Erro de conexao'));}
     function apiHeaders(){return{'Content-Type':'application/json','X-Admin-Key':KEY};}
     async function loadDefaults(){try{const r=await fetch('/api/defaults?key='+KEY);const d=await r.json();if(d.streamUrl){document.getElementById('streamUrl').value=d.streamUrl;document.getElementById('streamUrl').classList.add('prefilled');}if(d.streamKey){document.getElementById('streamKey').value=d.streamKey;document.getElementById('streamKey').classList.add('prefilled');document.getElementById('prefilledNote').style.display='block';}if(d.account)document.getElementById('accountName').textContent='@'+d.account;if(d.overlayUrl){document.getElementById('overlayUrl').value=d.overlayUrl;document.getElementById('overlayUrl').classList.add('prefilled');}}catch(e){}}
-    async function loadOverlayInfo(){try{const r=await fetch('/api/overlay?key='+KEY);const o=await r.json();if(o.name){document.getElementById('overlayRow').style.display='flex';document.getElementById('topTitleSection').style.display='block';document.getElementById('overlayLabel').textContent='Overlay LC'+(o.pngReady?' (pronto)':' (sem imagem)');if(o.pngReady){document.getElementById('overlayStatus').style.display='block';document.getElementById('overlayStatus').textContent='Overlay carregado e pronto';}else if(o.overlayUrl){document.getElementById('overlayStatus').style.display='block';document.getElementById('overlayStatus').textContent='Overlay URL configurada (baixa no proximo start)';document.getElementById('overlayStatus').style.borderColor='#f39c12';document.getElementById('overlayStatus').style.color='#f39c12';}}if(o.whisperReady)document.getElementById('autoSubsRow').style.display='flex';}catch(e){}}
+    async function loadOverlayInfo(){try{const r=await fetch('/api/overlay?key='+KEY);const o=await r.json();if(o.name){document.getElementById('overlayRow').style.display='flex';document.getElementById('topTitleSection').style.display='block';document.getElementById('overlayLabel').textContent='Overlay LC'+(o.pngReady?' (pronto)':' (sem imagem)');if(o.pngReady){document.getElementById('overlayStatus').style.display='block';document.getElementById('overlayStatus').textContent='Overlay carregado e pronto';}else if(o.overlayUrl){document.getElementById('overlayStatus').style.display='block';document.getElementById('overlayStatus').textContent='Overlay URL configurada (baixa no proximo start)';document.getElementById('overlayStatus').style.borderColor='#B98600';document.getElementById('overlayStatus').style.color='#B98600';}}if(o.whisperReady)document.getElementById('autoSubsRow').style.display='flex';}catch(e){}}
     async function autoSaveDefaults(){const streamUrl=document.getElementById('streamUrl').value.trim();const streamKey=document.getElementById('streamKey').value.trim();const overlayUrl=document.getElementById('overlayUrl').value.trim();try{await fetch('/api/save-defaults',{method:'POST',headers:apiHeaders(),body:JSON.stringify({streamUrl,streamKey,overlayUrl})});document.getElementById('prefilledNote').style.display='block';}catch(e){}}
     async function loadVideoHistory(){try{const r=await fetch('/api/video-history?key='+KEY);const list=await r.json();if(!list||list.length===0){document.getElementById('historySection').style.display='none';return;}document.getElementById('historySection').style.display='block';const grid=document.getElementById('historyGrid');grid.innerHTML=list.map(v=>{const srcBadge=v.source==='youtube'?'<span class="hc-badge yt">YT</span>':'<span class="hc-badge drive">Drive</span>';const oriBadge=v.orientation==='horizontal'?'<span class="hc-badge horiz">H</span>':'<span class="hc-badge vert">V</span>';const thumb=v.thumbnail?'<img src="'+escHtml(v.thumbnail)+'" alt="">':'<div class="hc-icon">'+(v.source==='youtube'?'&#9654;':'&#9729;')+'</div>';return'<div class="history-card" onclick="useHistoryVideo(\''+encodeURIComponent(v.url)+'\')"><div class="hc-thumb">'+thumb+'</div><div class="hc-body"><div class="hc-label">'+escHtml(v.label)+'</div><div class="hc-meta">'+srcBadge+oriBadge+'<span>'+v.sizeMB+'MB</span><span>'+timeAgo(v.lastUsed)+'</span></div></div></div>';}).join('');}catch(e){}}
     function useHistoryVideo(eu){const url=decodeURIComponent(eu);const inputs=document.querySelectorAll('#videoList input');let filled=false;for(const inp of inputs){if(!inp.value.trim()){inp.value=url;inp.classList.add('prefilled');filled=true;break;}}if(!filled){addVideoField();const ni=document.querySelectorAll('#videoList input');ni[ni.length-1].value=url;ni[ni.length-1].classList.add('prefilled');}}
@@ -177,7 +183,7 @@
     function toggleDetails(){const d=document.getElementById('rtmpDetails'),b=document.getElementById('toggleBtn');if(d.classList.contains('details-hidden')){d.classList.remove('details-hidden');b.textContent='Esconder configuracoes';}else{d.classList.add('details-hidden');b.textContent='Configuracoes';}}
     async function startStream(){const streamUrl=document.getElementById('streamUrl').value.trim();const streamKey=document.getElementById('streamKey').value.trim();const videoUrls=getVideoUrls();const loop=document.getElementById('loop').checked;const useOverlay=document.getElementById('useOverlay')?document.getElementById('useOverlay').checked:false;const topTitle=(document.getElementById('topTitle').value||'').trim();const autoSubs=document.getElementById('autoSubs')?document.getElementById('autoSubs').checked:false;if(!streamKey){toggleDetails();alert('Configure a chave de stream primeiro.');return;}if(videoUrls.length===0){alert('Adicione pelo menos um video');return;}const btn=document.getElementById('btnStart');btn.disabled=true;btn.textContent='Preparando...';startProgressPolling();try{const r=await fetch('/api/stream/start',{method:'POST',headers:apiHeaders(),body:JSON.stringify({streamUrl,streamKey,videoUrls,loop,useOverlay,topTitle,autoSubs})});const d=await r.json();if(d.error){alert('Erro: '+d.error);btn.disabled=false;btn.textContent='Iniciar Live';stopProgressPolling();return;}setTimeout(loadVideoHistory,5000);fetchLogs();}catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent='Iniciar Live';stopProgressPolling();}}
     async function swapVideos(immediate){const videoUrls=getSwapUrls();if(videoUrls.length===0){alert('Cole pelo menos um video novo');return;}const btnId=immediate?'btnSwapNow':'btnSwap';const btn=document.getElementById(btnId);btn.disabled=true;btn.textContent='Trocando...';startProgressPolling();const endpoint=immediate?'/api/stream/swap-now':'/api/stream/swap';try{const r=await fetch(endpoint,{method:'POST',headers:apiHeaders(),body:JSON.stringify({videoUrls})});const d=await r.json();if(d.error)alert('Erro: '+d.error);else alert(d.message);btn.disabled=false;btn.textContent=immediate?'Trocar agora (pausa de ~3s)':'Trocar (quando o atual terminar)';stopProgressPolling();setTimeout(loadVideoHistory,2000);fetchLogs();}catch(e){alert('Erro');btn.disabled=false;stopProgressPolling();}}
-    async function stopStream(){if(!confirm('Parar a live?'))return;await fetch('/api/stream/stop',{method:'POST',headers:apiHeaders()});stopProgressPolling();fetchLogs();}
+    async function stopStream(){if(!confirm('Encerrar a live?'))return;await fetch('/api/stream/stop',{method:'POST',headers:apiHeaders()});stopProgressPolling();fetchLogs();}
     async function clearCache(){if(!confirm('Remover videos em cache?'))return;const r=await fetch('/api/cache/clear',{method:'POST',headers:apiHeaders()});const d=await r.json();alert(d.removed+' arquivo(s) removido(s)');}
     function updateUI(status){const bar=document.getElementById('statusBar'),dot=document.getElementById('statusDot'),text=document.getElementById('statusText');const sp=document.getElementById('startPanel'),lp=document.getElementById('livePanel'),btn=document.getElementById('btnStart');if(status.streaming){bar.className='status-bar live';dot.className='dot on';text.textContent='AO VIVO';sp.style.display='none';lp.style.display='block';document.getElementById('liveVideoCount').textContent=status.videoUrls?status.videoUrls.length+' video(s)':'';document.getElementById('liveOverlayInfo').textContent=status.overlay==='on'?'Overlay ativo':'';streamStartTime=new Date(status.startedAt);if(!uptimeInterval)uptimeInterval=setInterval(updateUptime,1000);stopProgressPolling();}else if(status.processing){bar.className='status-bar processing';dot.className='dot prep';text.textContent='Preparando...';sp.style.display='block';lp.style.display='none';btn.disabled=true;btn.textContent='Preparando...';if(!progressPoll)startProgressPolling();}else{bar.className='status-bar offline';dot.className='dot off';text.textContent='Offline';sp.style.display='block';lp.style.display='none';btn.disabled=false;btn.textContent='Iniciar Live';streamStartTime=null;if(uptimeInterval){clearInterval(uptimeInterval);uptimeInterval=null;}document.getElementById('uptime').textContent='00:00:00';}}
     function updateUptime(){if(!streamStartTime)return;const d=Math.floor((Date.now()-streamStartTime.getTime())/1000);const h=String(Math.floor(d/3600)).padStart(2,'0');const m=String(Math.floor((d%3600)/60)).padStart(2,'0');const s=String(d%60).padStart(2,'0');document.getElementById('uptime').textContent=h+':'+m+':'+s;}
