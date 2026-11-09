@@ -19,6 +19,7 @@ const DEFAULT_ACCOUNT = process.env.DEFAULT_ACCOUNT || '';
 const OVERLAY_NAME = process.env.OVERLAY_NAME || '';
 const OVERLAY_DESTINATIONS = process.env.OVERLAY_DESTINATIONS || '';
 const OVERLAY_CTA = process.env.OVERLAY_CTA || '';
+const OVERLAY_URL = process.env.OVERLAY_URL || '';
 const OVERLAY_IMG_PATH = path.join(VIDEOS_DIR, 'overlay_branded.img');
 const SUBTITLE_PATH = path.join(VIDEOS_DIR, 'current_subtitles.srt');
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
@@ -62,10 +63,43 @@ function addToVideoHistory(url, videoPath) {
 function log(msg) { const entry = '[' + new Date().toISOString() + '] ' + msg; streamLogs.push(entry); if (streamLogs.length > 500) streamLogs.shift(); console.log(entry); }
 function auth(req, res, next) { const key = req.headers['x-admin-key'] || req.query.key; if (key !== ADMIN_KEY) return res.status(401).json({ error: 'Unauthorized' }); next(); }
 
-// Setup overlay: decode base64 JPEG (chromakey green) from overlays/ folder
+function extractDriveFileId(url) { let m = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/); if (m) return m[1]; m = url.match(/[?&]id=([a-zA-Z0-9_-]+)/); if (m) return m[1]; return null; }
+function isYouTubeUrl(url) { return /(?:youtube\.com|youtu\.be)/.test(url); }
+function getVideoInfo(videoPath) { try { const r = execSync('ffprobe -v quiet -print_format json -show_streams -show_format "' + videoPath + '"', { encoding: 'utf8' }); const d = JSON.parse(r); const vs = d.streams.find(s => s.codec_type === 'video'); return vs ? { width: vs.width, height: vs.height } : null; } catch (e) { return null; } }
+
+// Download overlay image from Google Drive URL
+function downloadOverlayFromUrl(url) {
+  const fid = extractDriveFileId(url);
+  if (!fid) { log('OVERLAY_URL: no Drive file ID found'); return false; }
+  log('Downloading overlay from Drive: ' + fid);
+  const cookieJar = path.join(VIDEOS_DIR, 'ovl_cookies.txt');
+  try {
+    const url1 = 'https://drive.usercontent.google.com/download?id=' + fid + '&export=download';
+    execSync('curl -s -L -c "' + cookieJar + '" -o "' + OVERLAY_IMG_PATH + '" "' + url1 + '"', { timeout: 30000 });
+    const sz = fs.statSync(OVERLAY_IMG_PATH).size;
+    if (sz < 50000) {
+      try {
+        const content = fs.readFileSync(OVERLAY_IMG_PATH, 'utf8');
+        if (content.includes('confirm=') || content.includes('</html>')) {
+          const cm = content.match(/confirm=([a-zA-Z0-9_-]+)/); const ct = cm ? cm[1] : 't';
+          fs.unlinkSync(OVERLAY_IMG_PATH);
+          execSync('curl -s -L -b "' + cookieJar + '" -c "' + cookieJar + '" -o "' + OVERLAY_IMG_PATH + '" "https://drive.usercontent.google.com/download?id=' + fid + '&export=download&confirm=' + ct + '"', { timeout: 60000 });
+        }
+      } catch(e) {}
+    }
+    try { fs.unlinkSync(cookieJar); } catch(e) {}
+    const finalSz = fs.statSync(OVERLAY_IMG_PATH).size;
+    if (finalSz < 10000) { log('Overlay download too small: ' + finalSz + 'B'); try { fs.unlinkSync(OVERLAY_IMG_PATH); } catch(e) {} return false; }
+    log('Overlay downloaded: ' + Math.round(finalSz / 1024) + 'KB (chromakey JPEG)');
+    return true;
+  } catch(e) { log('Overlay download error: ' + e.message); try { fs.unlinkSync(cookieJar); } catch(ex) {} return false; }
+}
+
+// Setup overlay: try .b64 from repo first, then OVERLAY_URL from Drive
 function setupOverlay() {
   if (!OVERLAY_NAME) { overlayReady = false; return; }
   if (fs.existsSync(OVERLAY_IMG_PATH)) { log('Overlay: cached'); overlayReady = true; return; }
+  // Try .b64 files in /app/overlays/
   const overlayDir = path.join('/app', 'overlays');
   if (fs.existsSync(overlayDir)) {
     const files = fs.readdirSync(overlayDir).filter(f => f.endsWith('.b64'));
@@ -73,19 +107,22 @@ function setupOverlay() {
       try {
         const b64 = fs.readFileSync(path.join(overlayDir, files[0]), 'utf8').trim();
         const buf = Buffer.from(b64, 'base64');
-        if (buf.length < 10000) { log('Overlay file too small (' + buf.length + 'B), broken upload?'); overlayReady = false; return; }
-        fs.writeFileSync(OVERLAY_IMG_PATH, buf);
-        log('Overlay decoded: ' + Math.round(buf.length / 1024) + 'KB from ' + files[0] + ' (chromakey JPEG)');
-        overlayReady = true; return;
+        if (buf.length >= 10000) {
+          fs.writeFileSync(OVERLAY_IMG_PATH, buf);
+          log('Overlay decoded: ' + Math.round(buf.length / 1024) + 'KB from ' + files[0]);
+          overlayReady = true; return;
+        }
+        log('Overlay .b64 too small (' + buf.length + 'B), trying URL...');
       } catch(e) { log('Overlay decode error: ' + e.message); }
     }
   }
+  // Fallback: download from OVERLAY_URL (Google Drive)
+  if (OVERLAY_URL) {
+    overlayReady = downloadOverlayFromUrl(OVERLAY_URL);
+    if (overlayReady) return;
+  }
   log('No overlay found'); overlayReady = false;
 }
-
-function extractDriveFileId(url) { let m = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/); if (m) return m[1]; m = url.match(/[?&]id=([a-zA-Z0-9_-]+)/); if (m) return m[1]; return null; }
-function isYouTubeUrl(url) { return /(?:youtube\.com|youtu\.be)/.test(url); }
-function getVideoInfo(videoPath) { try { const r = execSync('ffprobe -v quiet -print_format json -show_streams -show_format "' + videoPath + '"', { encoding: 'utf8' }); const d = JSON.parse(r); const vs = d.streams.find(s => s.codec_type === 'video'); return vs ? { width: vs.width, height: vs.height } : null; } catch (e) { return null; } }
 
 function downloadFromDrive(fileId, destPath) {
   return new Promise((resolve, reject) => {
@@ -144,25 +181,20 @@ function transcribeVideo(videoPath) {
 
 // Build FFmpeg filter for horizontal video with JPEG chromakey overlay (real-time)
 function buildOverlayFilter(useOverlay) {
-  // Base: blur background + centered video for horizontal content
   let filter = '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2';
   const inputs = [];
   let idx = 1;
-  // JPEG chromakey overlay: remove green bg, composite over video
   if (useOverlay && overlayReady && fs.existsSync(OVERLAY_IMG_PATH)) {
     inputs.push('-i', OVERLAY_IMG_PATH);
-    // Scale overlay to 1080x1920, apply colorkey to remove chromakey green, then overlay
     filter += '[base];[' + idx + ':v]scale=1080:1920,colorkey=0x00FF00:0.3:0.15[ovl];[base][ovl]overlay=0:0:format=auto';
     idx++;
   }
-  // Dynamic top title
   if (currentTopTitle) {
     const esc = (t) => t.replace(/'/g, "'\\\\\\'''").replace(/:/g, '\\:');
     const fontBold = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
     filter += ',drawbox=x=0:y=ih*0.25:w=iw:h=ih*0.035:color=black@0.5:t=fill';
     filter += ",drawtext=text='" + esc(currentTopTitle) + "':fontfile=" + fontBold + ":fontsize=h*0.018:fontcolor=white:x=(w-text_w)/2:y=h*0.257";
   }
-  // Subtitles
   if (fs.existsSync(SUBTITLE_PATH)) {
     filter += ",subtitles=" + SUBTITLE_PATH.replace(/:/g,'\\\\:') + ":force_style='FontSize=24,FontName=DejaVu Sans,PrimaryColour=&Hffffff,OutlineColour=&H000000,Outline=2,Alignment=2,MarginV=350'";
   }
@@ -322,5 +354,5 @@ app.get('/health',(req,res)=>{res.json({status:'ok',streaming:!!currentStream,pr
 (()=>{
   loadVideoHistory();
   setupOverlay();
-  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT);if(OVERLAY_NAME)log('Overlay: '+OVERLAY_NAME+' | Ready: '+(overlayReady?'yes (chromakey)':'NO'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length);});
+  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT);if(OVERLAY_NAME)log('Overlay: '+OVERLAY_NAME+' | Ready: '+(overlayReady?'yes (chromakey)':'NO')+' | URL: '+(OVERLAY_URL?'set':'none'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length);});
 })();
