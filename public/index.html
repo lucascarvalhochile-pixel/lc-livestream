@@ -84,20 +84,20 @@
     .hc-badge.horiz { background: rgba(46,204,113,0.08); color: #2ecc71; }
     .hc-badge.vert { background: rgba(185,134,0,0.08); color: #B98600; }
     /* Overlay Editor Modal */
-    .modal-bg { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; align-items:center; justify-content:center; }
+    .modal-bg { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; align-items:flex-start; justify-content:center; padding:20px 0; overflow-y:auto; }
     .modal-bg.active { display:flex; }
-    .modal { background:#001228; border:1px solid rgba(1,0,254,0.3); border-radius:16px; padding:24px; max-width:420px; width:95%; max-height:90vh; overflow-y:auto; }
-    .modal h3 { font-family:'Sora',sans-serif; font-size:16px; color:#fff; margin-bottom:16px; }
-    .editor-wrap { position:relative; width:100%; background:#000; border-radius:8px; overflow:hidden; margin-bottom:16px; touch-action:none; }
-    .editor-wrap img { width:100%; display:block; }
+    .modal { background:#001228; border:1px solid rgba(1,0,254,0.3); border-radius:16px; padding:20px; max-width:380px; width:95%; margin:auto; display:flex; flex-direction:column; }
+    .modal h3 { font-family:'Sora',sans-serif; font-size:16px; color:#fff; margin-bottom:8px; }
+    .editor-wrap { position:relative; width:100%; max-height:50vh; background:#000; border-radius:8px; overflow:hidden; margin-bottom:12px; touch-action:none; }
+    .editor-wrap img { width:100%; max-height:50vh; object-fit:contain; display:block; }
     .editor-wrap canvas { position:absolute; top:0; left:0; width:100%; height:100%; cursor:ns-resize; }
-    .crop-vals { display:flex; gap:12px; margin-bottom:16px; }
+    .crop-vals { display:flex; gap:12px; margin-bottom:8px; }
     .crop-val { flex:1; }
-    .crop-val label { font-size:11px; color:rgba(255,255,255,0.4); margin-bottom:4px; }
+    .crop-val label { font-size:11px; color:rgba(255,255,255,0.4); margin-bottom:2px; }
     .crop-val input[type=range] { width:100%; accent-color:#0100FE; }
     .crop-val .val { font-family:'Sora',sans-serif; font-size:14px; color:#fff; font-weight:700; }
-    .modal-actions { display:flex; gap:10px; }
-    .modal-actions .btn { flex:1; padding:12px; font-size:13px; }
+    .modal-actions { display:flex; gap:10px; margin-top:8px; }
+    .modal-actions .btn { flex:1; padding:14px; font-size:14px; }
     .btn-ghost { background:transparent; border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.5); } .btn-ghost:hover { border-color:rgba(255,255,255,0.3); color:#fff; }
   </style>
 </head>
@@ -172,16 +172,16 @@
   <div class="modal-bg" id="overlayModal">
     <div class="modal">
       <h3>Configurar Overlay</h3>
-      <p style="font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:12px;">Arraste as linhas azuis pra definir onde o video aparece. Tudo acima da linha de cima e abaixo da linha de baixo vira o overlay.</p>
+      <p style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:8px;">Arraste as linhas ou use os sliders. O video aparece entre as duas linhas.</p>
       <div class="editor-wrap" id="editorWrap">
         <img id="editorImg" src="" alt="overlay" style="opacity:0">
         <canvas id="editorCanvas"></canvas>
       </div>
       <div class="crop-vals">
-        <div class="crop-val"><label>Linha de cima (px)</label><div class="val" id="topVal">491</div><input type="range" id="topSlider" min="100" max="960" value="491" oninput="updateEditor()"></div>
-        <div class="crop-val"><label>Linha de baixo (px)</label><div class="val" id="botVal">1174</div><input type="range" id="botSlider" min="960" max="1850" value="1174" oninput="updateEditor()"></div>
+        <div class="crop-val"><label>Topo (px)</label><div class="val" id="topVal">491</div><input type="range" id="topSlider" min="100" max="960" value="491" oninput="updateEditor()"></div>
+        <div class="crop-val"><label>Base (px)</label><div class="val" id="botVal">1174</div><input type="range" id="botSlider" min="960" max="1850" value="1174" oninput="updateEditor()"></div>
       </div>
-      <div style="font-size:11px;color:rgba(255,255,255,0.3);margin-bottom:12px;text-align:center;">Video visivel: <span id="gapPx">683</span>px (de 1920)</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.25);margin-bottom:8px;text-align:center;">Video: <span id="gapPx">683</span>px de 1920</div>
       <div class="modal-actions">
         <button class="btn btn-ghost" onclick="closeOverlayEditor()">Cancelar</button>
         <button class="btn btn-start" id="btnSaveCrop" onclick="saveOverlayCrop()">Salvar</button>
@@ -195,9 +195,7 @@
     function doLogin(){KEY=document.getElementById('adminKey').value;if(!KEY)return;fetch('/api/stream/status?key='+KEY).then(r=>{if(r.status===401){alert('Senha incorreta');return;}document.getElementById('login').style.display='none';document.getElementById('dashboard').style.display='block';loadDefaults();loadOverlayInfo();loadVideoHistory();startPolling();fetchLogs();}).catch(()=>alert('Erro de conexao'));}
     function apiHeaders(){return{'Content-Type':'application/json','X-Admin-Key':KEY};}
     async function loadDefaults(){try{const r=await fetch('/api/defaults?key='+KEY);const d=await r.json();if(d.streamUrl){document.getElementById('streamUrl').value=d.streamUrl;document.getElementById('streamUrl').classList.add('prefilled');}if(d.streamKey){document.getElementById('streamKey').value=d.streamKey;document.getElementById('streamKey').classList.add('prefilled');document.getElementById('prefilledNote').style.display='block';}if(d.account)document.getElementById('accountName').textContent='@'+d.account;if(d.overlayUrl){document.getElementById('overlayUrl').value=d.overlayUrl;document.getElementById('overlayUrl').classList.add('prefilled');}}catch(e){}}
-    async function loadOverlayInfo(){try{const r=await fetch('/api/overlay?key='+KEY);const o=await r.json();if(o.name){document.getElementById('overlayRow').style.display='flex';document.getElementById('overlayEditor').style.display='block';if(o.pngReady){document.getElementById('overlayStatus').style.display='block';document.getElementById('overlayStatus').textContent='Overlay pronto';}else if(o.overlayUrl){document.getElementById('overlayStatus').style.display='block';document.getElementById('overlayStatus').textContent='Overlay URL configurada';document.getElementById('overlayStatus').style.borderColor='#B98600';document.getElementById('overlayStatus').style.color='#B98600';}}if(o.whisperReady)document.getElementById('autoSubsRow').style.display='flex';
-    // Load current crop values
-    const rc=await fetch('/api/overlay-config?key='+KEY);const cfg=await rc.json();if(cfg.topH&&cfg.botY){document.getElementById('overlayVals').textContent='topo: '+cfg.topH+'px, base: '+cfg.botY+'px';document.getElementById('topSlider').value=cfg.topH;document.getElementById('botSlider').value=cfg.botY;document.getElementById('topVal').textContent=cfg.topH;document.getElementById('botVal').textContent=cfg.botY;document.getElementById('gapPx').textContent=cfg.botY-cfg.topH;}}catch(e){}}
+    async function loadOverlayInfo(){try{const r=await fetch('/api/overlay?key='+KEY);const o=await r.json();if(o.name){document.getElementById('overlayRow').style.display='flex';document.getElementById('overlayEditor').style.display='block';if(o.pngReady){document.getElementById('overlayStatus').style.display='block';document.getElementById('overlayStatus').textContent='Overlay pronto';}else if(o.overlayUrl){document.getElementById('overlayStatus').style.display='block';document.getElementById('overlayStatus').textContent='Overlay URL configurada';document.getElementById('overlayStatus').style.borderColor='#B98600';document.getElementById('overlayStatus').style.color='#B98600';}}if(o.whisperReady)document.getElementById('autoSubsRow').style.display='flex';const rc=await fetch('/api/overlay-config?key='+KEY);const cfg=await rc.json();if(cfg.topH&&cfg.botY){document.getElementById('overlayVals').textContent='topo: '+cfg.topH+'px, base: '+cfg.botY+'px';document.getElementById('topSlider').value=cfg.topH;document.getElementById('botSlider').value=cfg.botY;document.getElementById('topVal').textContent=cfg.topH;document.getElementById('botVal').textContent=cfg.botY;document.getElementById('gapPx').textContent=cfg.botY-cfg.topH;}}catch(e){}}
     async function autoSaveDefaults(){const streamUrl=document.getElementById('streamUrl').value.trim();const streamKey=document.getElementById('streamKey').value.trim();const overlayUrl=document.getElementById('overlayUrl').value.trim();try{await fetch('/api/save-defaults',{method:'POST',headers:apiHeaders(),body:JSON.stringify({streamUrl,streamKey,overlayUrl})});document.getElementById('prefilledNote').style.display='block';}catch(e){}}
     async function loadVideoHistory(){try{const r=await fetch('/api/video-history?key='+KEY);const list=await r.json();if(!list||list.length===0){document.getElementById('historySection').style.display='none';return;}document.getElementById('historySection').style.display='block';const grid=document.getElementById('historyGrid');grid.innerHTML=list.map(v=>{const srcBadge=v.source==='youtube'?'<span class="hc-badge yt">YT</span>':'<span class="hc-badge drive">Drive</span>';const oriBadge=v.orientation==='horizontal'?'<span class="hc-badge horiz">H</span>':'<span class="hc-badge vert">V</span>';const thumb=v.thumbnail?'<img src="'+escHtml(v.thumbnail)+'" alt="">':'<div class="hc-icon">'+(v.source==='youtube'?'&#9654;':'&#9729;')+'</div>';return'<div class="history-card" onclick="useHistoryVideo(\''+encodeURIComponent(v.url)+'\')"><div class="hc-thumb">'+thumb+'</div><div class="hc-body"><div class="hc-label">'+escHtml(v.label)+'</div><div class="hc-meta">'+srcBadge+oriBadge+'<span>'+v.sizeMB+'MB</span><span>'+timeAgo(v.lastUsed)+'</span></div></div></div>';}).join('');}catch(e){}}
     function useHistoryVideo(eu){const url=decodeURIComponent(eu);const inputs=document.querySelectorAll('#videoList input');let filled=false;for(const inp of inputs){if(!inp.value.trim()){inp.value=url;inp.classList.add('prefilled');filled=true;break;}}if(!filled){addVideoField();const ni=document.querySelectorAll('#videoList input');ni[ni.length-1].value=url;ni[ni.length-1].classList.add('prefilled');}}
@@ -221,7 +219,7 @@
       document.getElementById('overlayModal').classList.add('active');
       const img=document.getElementById('editorImg');
       img.src='/api/overlay-image?key='+KEY+'&t='+Date.now();
-      img.onload=function(){editorImgLoaded=true;initEditorCanvas();updateEditor();};
+      img.onload=function(){editorImgLoaded=true;setTimeout(()=>{initEditorCanvas();updateEditor();},50);};
       img.onerror=function(){alert('Overlay nao encontrado. Configure a URL primeiro.');closeOverlayEditor();};
     }
     function closeOverlayEditor(){document.getElementById('overlayModal').classList.remove('active');}
@@ -230,65 +228,50 @@
       const canvas=document.getElementById('editorCanvas');
       const img=document.getElementById('editorImg');
       img.style.opacity='1';
-      canvas.width=wrap.offsetWidth;
-      canvas.height=wrap.offsetHeight;
+      canvas.width=img.offsetWidth;
+      canvas.height=img.offsetHeight;
     }
     function updateEditor(){
       if(!editorImgLoaded)return;
       const canvas=document.getElementById('editorCanvas');
       const ctx=canvas.getContext('2d');
       const w=canvas.width, h=canvas.height;
+      if(w===0||h===0)return;
       const topH=parseInt(document.getElementById('topSlider').value);
       const botY=parseInt(document.getElementById('botSlider').value);
       document.getElementById('topVal').textContent=topH;
       document.getElementById('botVal').textContent=botY;
       document.getElementById('gapPx').textContent=botY-topH;
-      // Scale to canvas
       const scale=h/1920;
       const tLine=topH*scale;
       const bLine=botY*scale;
       ctx.clearRect(0,0,w,h);
-      // Dim the overlay zones (top and bottom bands)
-      ctx.fillStyle='rgba(1,0,254,0.15)';
+      // Dim overlay zones
+      ctx.fillStyle='rgba(1,0,254,0.2)';
       ctx.fillRect(0,0,w,tLine);
       ctx.fillRect(0,bLine,w,h-bLine);
-      // Highlight video zone
-      ctx.fillStyle='rgba(46,204,113,0.08)';
+      // Video zone highlight
+      ctx.fillStyle='rgba(46,204,113,0.1)';
       ctx.fillRect(0,tLine,w,bLine-tLine);
-      // Top line
+      // Top line + handle
       ctx.strokeStyle='#0100FE';ctx.lineWidth=3;
       ctx.beginPath();ctx.moveTo(0,tLine);ctx.lineTo(w,tLine);ctx.stroke();
-      // Top handle
       ctx.fillStyle='#0100FE';ctx.beginPath();ctx.arc(w/2,tLine,8,0,Math.PI*2);ctx.fill();
-      ctx.fillStyle='#fff';ctx.font='bold 10px Sora';ctx.textAlign='center';ctx.fillText('TOPO',w/2,tLine-14);
-      // Bottom line
-      ctx.strokeStyle='#0100FE';ctx.lineWidth=3;
+      ctx.fillStyle='#fff';ctx.font='bold 10px Sora,sans-serif';ctx.textAlign='center';
+      ctx.fillText('TOPO '+topH+'px',w/2,tLine>20?tLine-12:tLine+20);
+      // Bottom line + handle
       ctx.beginPath();ctx.moveTo(0,bLine);ctx.lineTo(w,bLine);ctx.stroke();
-      // Bottom handle
       ctx.fillStyle='#0100FE';ctx.beginPath();ctx.arc(w/2,bLine,8,0,Math.PI*2);ctx.fill();
-      ctx.fillStyle='#fff';ctx.fillText('BASE',w/2,bLine+22);
+      ctx.fillStyle='#fff';
+      ctx.fillText('BASE '+botY+'px',w/2,bLine<h-20?bLine+20:bLine-12);
     }
-    // Drag support on canvas
     (function(){
       let dragging=null;
       const canvas=document.getElementById('editorCanvas');
       function getY(e){const r=canvas.getBoundingClientRect();const clientY=e.touches?e.touches[0].clientY:e.clientY;return clientY-r.top;}
       function toPx(canvasY){return Math.round(canvasY/(canvas.height/1920));}
-      function start(e){
-        e.preventDefault();
-        const y=getY(e);const scale=canvas.height/1920;
-        const tLine=parseInt(document.getElementById('topSlider').value)*scale;
-        const bLine=parseInt(document.getElementById('botSlider').value)*scale;
-        if(Math.abs(y-tLine)<20) dragging='top';
-        else if(Math.abs(y-bLine)<20) dragging='bot';
-      }
-      function move(e){
-        if(!dragging)return;e.preventDefault();
-        const px=Math.max(100,Math.min(1850,toPx(getY(e))));
-        if(dragging==='top'){const bot=parseInt(document.getElementById('botSlider').value);if(px<bot-50){document.getElementById('topSlider').value=px;}}
-        else{const top=parseInt(document.getElementById('topSlider').value);if(px>top+50){document.getElementById('botSlider').value=px;}}
-        updateEditor();
-      }
+      function start(e){e.preventDefault();const y=getY(e);const scale=canvas.height/1920;const tLine=parseInt(document.getElementById('topSlider').value)*scale;const bLine=parseInt(document.getElementById('botSlider').value)*scale;if(Math.abs(y-tLine)<25)dragging='top';else if(Math.abs(y-bLine)<25)dragging='bot';}
+      function move(e){if(!dragging)return;e.preventDefault();const px=Math.max(100,Math.min(1850,toPx(getY(e))));if(dragging==='top'){const bot=parseInt(document.getElementById('botSlider').value);if(px<bot-50)document.getElementById('topSlider').value=px;}else{const top=parseInt(document.getElementById('topSlider').value);if(px>top+50)document.getElementById('botSlider').value=px;}updateEditor();}
       function end(){dragging=null;}
       canvas.addEventListener('mousedown',start);canvas.addEventListener('mousemove',move);canvas.addEventListener('mouseup',end);canvas.addEventListener('mouseleave',end);
       canvas.addEventListener('touchstart',start,{passive:false});canvas.addEventListener('touchmove',move,{passive:false});canvas.addEventListener('touchend',end);
@@ -297,17 +280,9 @@
       const topH=parseInt(document.getElementById('topSlider').value);
       const botY=parseInt(document.getElementById('botSlider').value);
       const btn=document.getElementById('btnSaveCrop');
-      btn.disabled=true;btn.textContent='Salvando...';
-      try{
-        const r=await fetch('/api/overlay-config',{method:'POST',headers:apiHeaders(),body:JSON.stringify({topH,botY})});
-        const d=await r.json();
-        if(d.success){
-          document.getElementById('overlayVals').textContent='topo: '+topH+'px, base: '+botY+'px';
-          closeOverlayEditor();
-          loadOverlayInfo();
-        }else{alert('Erro: '+(d.error||'falha'));}
-      }catch(e){alert('Erro de conexao');}
-      btn.disabled=false;btn.textContent='Salvar';
+      btn.disabled=true;btn.textContent='SALVANDO...';
+      try{const r=await fetch('/api/overlay-config',{method:'POST',headers:apiHeaders(),body:JSON.stringify({topH,botY})});const d=await r.json();if(d.success){document.getElementById('overlayVals').textContent='topo: '+topH+'px, base: '+botY+'px';closeOverlayEditor();loadOverlayInfo();}else{alert('Erro: '+(d.error||'falha'));}}catch(e){alert('Erro de conexao');}
+      btn.disabled=false;btn.textContent='SALVAR';
     }
 
     async function startStream(){const streamUrl=document.getElementById('streamUrl').value.trim();const streamKey=document.getElementById('streamKey').value.trim();const videoUrls=getVideoUrls();const loop=document.getElementById('loop').checked;const useOverlay=document.getElementById('useOverlay')?document.getElementById('useOverlay').checked:false;const autoSubs=document.getElementById('autoSubs')?document.getElementById('autoSubs').checked:false;if(!streamKey){toggleDetails();alert('Configure a chave de stream primeiro.');return;}if(videoUrls.length===0){alert('Adicione pelo menos um video');return;}const btn=document.getElementById('btnStart');btn.disabled=true;btn.textContent='Preparando...';startProgressPolling();try{const r=await fetch('/api/stream/start',{method:'POST',headers:apiHeaders(),body:JSON.stringify({streamUrl,streamKey,videoUrls,loop,useOverlay,autoSubs})});const d=await r.json();if(d.error){alert('Erro: '+d.error);btn.disabled=false;btn.textContent='Iniciar Live';stopProgressPolling();return;}setTimeout(loadVideoHistory,5000);fetchLogs();}catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent='Iniciar Live';stopProgressPolling();}}
