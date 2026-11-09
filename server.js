@@ -16,12 +16,14 @@ const VIDEOS_DIR = '/tmp/videos';
 const DATA_DIR = fs.existsSync('/data') ? '/data' : VIDEOS_DIR;
 const OVERLAY_NAME = process.env.OVERLAY_NAME || '';
 const OVERLAY_RAW_PATH = path.join(DATA_DIR, 'overlay_raw.img');
-const OVERLAY_PNG_PATH = path.join(DATA_DIR, 'overlay_alpha.png');
+const OVERLAY_TOP_PATH = path.join(DATA_DIR, 'overlay_top.jpg');
+const OVERLAY_BOT_PATH = path.join(DATA_DIR, 'overlay_bottom.jpg');
 const SUBTITLE_PATH = path.join(VIDEOS_DIR, 'current_subtitles.srt');
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 const VIDEO_HISTORY_PATH = path.join(DATA_DIR, 'video_history.json');
 const STREAM_DEFAULTS_PATH = path.join(DATA_DIR, 'stream_defaults.json');
 let currentTopTitle = '';
+let overlayTopH = 600, overlayBotY = 1155;
 
 if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
 
@@ -37,7 +39,7 @@ function saveStreamDefaults(obj) {
   if (obj.overlayUrl !== undefined) {
     const oldUrl = savedDefaults.overlayUrl;
     savedDefaults.overlayUrl = obj.overlayUrl;
-    if (obj.overlayUrl !== oldUrl) { try { fs.unlinkSync(OVERLAY_RAW_PATH); } catch(e) {} try { fs.unlinkSync(OVERLAY_PNG_PATH); } catch(e) {} overlayReady = false; log('Overlay URL changed, cache cleared'); }
+    if (obj.overlayUrl !== oldUrl) { try{fs.unlinkSync(OVERLAY_RAW_PATH);}catch(e){} try{fs.unlinkSync(OVERLAY_TOP_PATH);}catch(e){} try{fs.unlinkSync(OVERLAY_BOT_PATH);}catch(e){} overlayReady = false; log('Overlay URL changed, cache cleared'); }
   }
   try { fs.writeFileSync(STREAM_DEFAULTS_PATH, JSON.stringify(savedDefaults, null, 2)); } catch(e) { log('Failed to save defaults: ' + e.message); }
 }
@@ -106,40 +108,31 @@ function downloadOverlayFromUrl(url) {
   } catch(e) { log('Overlay download error: ' + e.message); try { fs.unlinkSync(cj); } catch(ex) {} return false; }
 }
 
-// Convert chromakey JPEG to PNG with alpha (one-time, cached in /data)
-function convertOverlayToAlpha() {
-  if (fs.existsSync(OVERLAY_PNG_PATH)) { log('Overlay alpha PNG: cached'); return true; }
+// Split overlay image into top and bottom bands (crop out the transparent/green middle)
+function splitOverlayBands() {
+  if (fs.existsSync(OVERLAY_TOP_PATH) && fs.existsSync(OVERLAY_BOT_PATH)) { log('Overlay bands: cached'); return true; }
   if (!fs.existsSync(OVERLAY_RAW_PATH)) return false;
   try {
-    log('Converting overlay to alpha PNG (one-time)...');
-    execSync('ffmpeg -i "' + OVERLAY_RAW_PATH + '" -filter_complex "colorkey=0x00FF00:0.3:0.15,format=rgba" -update 1 -y "' + OVERLAY_PNG_PATH + '"', { timeout: 30000 });
-    const sz = fs.statSync(OVERLAY_PNG_PATH).size;
-    log('Overlay alpha PNG: ' + Math.round(sz / 1024) + 'KB');
-    return sz > 10000;
-  } catch(e) { log('Overlay convert error: ' + e.message); return false; }
+    log('Splitting overlay into top+bottom bands...');
+    // Crop top band: 1080x600 from y=0
+    execSync('ffmpeg -i "' + OVERLAY_RAW_PATH + '" -filter_complex "crop=1080:600:0:0" -update 1 -y "' + OVERLAY_TOP_PATH + '"', { timeout: 15000 });
+    // Crop bottom band: 1080x765 from y=1155
+    execSync('ffmpeg -i "' + OVERLAY_RAW_PATH + '" -filter_complex "crop=1080:765:0:1155" -update 1 -y "' + OVERLAY_BOT_PATH + '"', { timeout: 15000 });
+    const ts = fs.statSync(OVERLAY_TOP_PATH).size;
+    const bs = fs.statSync(OVERLAY_BOT_PATH).size;
+    log('Overlay bands: top ' + Math.round(ts/1024) + 'KB, bottom ' + Math.round(bs/1024) + 'KB');
+    return ts > 1000 && bs > 1000;
+  } catch(e) { log('Overlay split error: ' + e.message); return false; }
 }
 
 function setupOverlay() {
   if (!OVERLAY_NAME) { overlayReady = false; return; }
-  // Already have the alpha PNG? Done
-  if (fs.existsSync(OVERLAY_PNG_PATH)) { log('Overlay: ready (alpha PNG cached)'); overlayReady = true; return; }
-  // Have raw image? Convert it
-  if (fs.existsSync(OVERLAY_RAW_PATH)) { overlayReady = convertOverlayToAlpha(); if (overlayReady) return; }
+  if (fs.existsSync(OVERLAY_TOP_PATH) && fs.existsSync(OVERLAY_BOT_PATH)) { log('Overlay: ready (bands cached)'); overlayReady = true; return; }
   // Download from URL
   const ovlUrl = savedDefaults.overlayUrl || process.env.OVERLAY_URL || '';
-  if (ovlUrl) {
-    if (downloadOverlayFromUrl(ovlUrl)) { overlayReady = convertOverlayToAlpha(); if (overlayReady) return; }
-  }
-  // Try .b64 from repo
-  const overlayDir = path.join('/app', 'overlays');
-  if (fs.existsSync(overlayDir)) {
-    const files = fs.readdirSync(overlayDir).filter(f => f.endsWith('.b64'));
-    if (files.length > 0) {
-      try { const b64 = fs.readFileSync(path.join(overlayDir, files[0]), 'utf8').trim(); const buf = Buffer.from(b64, 'base64');
-        if (buf.length >= 10000) { fs.writeFileSync(OVERLAY_RAW_PATH, buf); log('Overlay from .b64: ' + Math.round(buf.length / 1024) + 'KB'); overlayReady = convertOverlayToAlpha(); if (overlayReady) return; }
-      } catch(e) {}
-    }
-  }
+  if (ovlUrl && !fs.existsSync(OVERLAY_RAW_PATH)) { downloadOverlayFromUrl(ovlUrl); }
+  // Split into bands
+  if (fs.existsSync(OVERLAY_RAW_PATH)) { overlayReady = splitOverlayBands(); if (overlayReady) return; }
   log('No overlay found'); overlayReady = false;
 }
 
@@ -192,14 +185,15 @@ function transcribeVideo(videoPath) {
   });
 }
 
-// Overlay filter: uses pre-converted alpha PNG (no colorkey at runtime = fast)
+// Two-band overlay: paste top and bottom images over the video (no transparency)
 function buildOverlayFilter(useOverlay) {
   let filter = '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2';
   const inputs = []; let idx = 1;
-  if (useOverlay && overlayReady && fs.existsSync(OVERLAY_PNG_PATH)) {
-    inputs.push('-i', OVERLAY_PNG_PATH);
-    // Simple alpha overlay, no colorkey needed (already converted to RGBA PNG)
-    filter += '[base];[' + idx + ':v]scale=1080:1920[ovl];[base][ovl]overlay=0:0:format=auto'; idx++;
+  if (useOverlay && overlayReady && fs.existsSync(OVERLAY_TOP_PATH) && fs.existsSync(OVERLAY_BOT_PATH)) {
+    inputs.push('-i', OVERLAY_TOP_PATH, '-i', OVERLAY_BOT_PATH);
+    // Paste top band at y=0, bottom band at y=1155
+    filter += '[base];[base][' + idx + ':v]overlay=0:0[t];[t][' + (idx+1) + ':v]overlay=0:' + overlayBotY;
+    idx += 2;
   }
   if (currentTopTitle) {
     const esc = (t) => t.replace(/'/g, "'\\\\\\'''").replace(/:/g, '\\:');
@@ -305,7 +299,7 @@ app.post('/api/stream/start',auth,(req,res)=>{
       let ffmpeg,cf=null;
       if(videoPaths.length===1) ffmpeg=startSingleFFmpeg(videoPaths[0],rtmpUrl,!!loop,!!useOverlay);
       else{cf=writeConcatFile(videoPaths);ffmpeg=startFFmpegConcat(cf,rtmpUrl,!!loop);}
-      log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'on (alpha PNG)':'off'));
+      log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'on (bands)':'off'));
       currentStream={id:uuidv4().slice(0,8),process:ffmpeg,startedAt:new Date().toISOString(),videoUrls:urls,videoPaths,loop:!!loop,useOverlay:!!useOverlay,rtmpUrl,concatFile:cf};
       attachFFmpegHandlers(ffmpeg);
       await new Promise(r=>setTimeout(r,3000));
@@ -332,5 +326,5 @@ app.get('/health',(req,res)=>{res.json({status:'ok',streaming:!!currentStream,pr
   loadVideoHistory();
   loadStreamDefaults();
   setupOverlay();
-  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT+' | data: '+DATA_DIR);log('Defaults: '+(savedDefaults.streamKey?'key: ...'+savedDefaults.streamKey.slice(-6):'none')+' | overlay: '+(savedDefaults.overlayUrl?'URL set':'none'));log('Overlay: '+(overlayReady?'ready (alpha PNG)':'not ready'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length);});
+  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT+' | data: '+DATA_DIR);log('Defaults: '+(savedDefaults.streamKey?'key: ...'+savedDefaults.streamKey.slice(-6):'none')+' | overlay: '+(savedDefaults.overlayUrl?'URL set':'none'));log('Overlay: '+(overlayReady?'ready (top+bottom bands)':'not ready'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length);});
 })();
