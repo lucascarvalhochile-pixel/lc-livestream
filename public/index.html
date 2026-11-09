@@ -15,9 +15,10 @@
     .status-bar { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-radius: 10px; margin-bottom: 24px; font-weight: 600; font-size: 14px; }
     .status-bar.offline { background: #1a1a1a; border: 1px solid #333; color: #888; }
     .status-bar.live { background: #1a0a0a; border: 1px solid #c0392b; color: #e74c3c; animation: pulse-border 2s infinite; }
+    .status-bar.processing { background: #1a1a0a; border: 1px solid #f39c12; color: #f39c12; }
     @keyframes pulse-border { 0%, 100% { border-color: #c0392b; } 50% { border-color: #e74c3c; } }
     .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-    .dot.off { background: #555; } .dot.on { background: #e74c3c; animation: blink 1s infinite; }
+    .dot.off { background: #555; } .dot.on { background: #e74c3c; animation: blink 1s infinite; } .dot.prep { background: #f39c12; animation: blink 1.5s infinite; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     .card { background: #141414; border: 1px solid #222; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
     .card h2 { font-size: 14px; font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
@@ -51,7 +52,6 @@
     .swap-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid #222; }
     .swap-section h3 { font-size: 13px; color: #f39c12; margin-bottom: 10px; font-weight: 600; }
     .overlay-info { font-size: 11px; color: #0100FE; margin-bottom: 14px; padding: 8px 12px; background: rgba(1,0,254,0.08); border: 1px solid rgba(1,0,254,0.2); border-radius: 8px; }
-    /* Progress bar */
     .progress-container { display: none; margin-bottom: 16px; padding: 16px; background: #111; border: 1px solid #222; border-radius: 10px; }
     .progress-container.active { display: block; }
     .progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -59,13 +59,7 @@
     .progress-pct { font-size: 13px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
     .progress-msg { font-size: 12px; color: #999; margin-bottom: 8px; min-height: 16px; }
     .progress-track { width: 100%; height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
-    .progress-fill { height: 100%; background: #0095f6; border-radius: 3px; transition: width 0.4s ease; width: 0%; }
-    .progress-steps { display: flex; gap: 6px; margin-top: 10px; }
-    .progress-step { flex: 1; height: 3px; border-radius: 2px; background: #222; transition: background 0.3s; }
-    .progress-step.done { background: #2ecc71; }
-    .progress-step.current { background: #0095f6; animation: step-pulse 1s infinite; }
-    @keyframes step-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-    /* Video history */
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #0095f6, #2ecc71); border-radius: 3px; transition: width 0.5s ease; width: 0%; }
     .history-section { margin-bottom: 14px; }
     .history-title { font-size: 12px; color: #666; margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
     .history-grid { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; -webkit-overflow-scrolling: touch; }
@@ -77,7 +71,7 @@
     .history-card .hc-icon { font-size: 18px; margin-bottom: 4px; }
     .history-card .hc-label { font-size: 11px; color: #ccc; line-height: 1.3; max-height: 30px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin-bottom: 4px; }
     .history-card .hc-meta { font-size: 10px; color: #555; display: flex; gap: 6px; align-items: center; }
-    .history-card .hc-badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
+    .hc-badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
     .hc-badge.yt { background: rgba(255,0,0,0.15); color: #f44; }
     .hc-badge.drive { background: rgba(66,133,244,0.15); color: #4285f4; }
     .hc-badge.horiz { background: rgba(46,204,113,0.1); color: #2ecc71; }
@@ -91,66 +85,44 @@
     <input type="password" id="adminKey" placeholder="Senha de acesso" onkeydown="if(event.key==='Enter') doLogin()">
     <button class="btn btn-start" onclick="doLogin()" style="max-width:300px">Entrar</button>
   </div>
-
   <div id="dashboard" class="container" style="display:none">
     <div class="header">
       <div><h1>LC LiveStream</h1><span class="brand">LC Turismo</span></div>
       <span class="account" id="accountName"></span>
     </div>
-
     <div id="statusBar" class="status-bar offline">
       <div class="dot off" id="statusDot"></div>
       <span id="statusText">Offline</span>
     </div>
-
-    <!-- Progress bar -->
     <div id="progressContainer" class="progress-container">
       <div class="progress-header">
         <span class="progress-stage" id="progressStage">Preparando...</span>
         <span class="progress-pct" id="progressPct">0%</span>
       </div>
       <div class="progress-msg" id="progressMsg">Iniciando...</div>
-      <div class="progress-track">
-        <div class="progress-fill" id="progressFill"></div>
-      </div>
-      <div class="progress-steps" id="progressSteps">
-        <div class="progress-step" data-step="downloading" title="Download"></div>
-        <div class="progress-step" data-step="normalizing" title="Processamento"></div>
-        <div class="progress-step" data-step="starting" title="Conexao"></div>
-      </div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
     </div>
-
     <div id="startPanel" class="card">
       <h2>Nova Live</h2>
-
-      <!-- Video history -->
       <div id="historySection" class="history-section" style="display:none">
         <div class="history-title">Videos recentes</div>
         <div class="history-grid" id="historyGrid"></div>
       </div>
-
       <label>Videos (Google Drive ou YouTube)</label>
       <div class="source-hint">Cole URLs do Google Drive ou YouTube. Multiplos videos tocam em sequencia.</div>
-      <div id="videoList">
-        <div class="video-row"><span class="num">1.</span><input type="text" placeholder="https://drive.google.com/file/d/... ou https://youtube.com/watch?v=..."></div>
-      </div>
+      <div id="videoList"><div class="video-row"><span class="num">1.</span><input type="text" placeholder="https://drive.google.com/file/d/... ou https://youtube.com/watch?v=..."></div></div>
       <button class="btn-add" onclick="addVideoField()">+ Adicionar video</button>
-      <div class="checkbox-row">
-        <input type="checkbox" id="loop" checked>
-        <label for="loop">Repetir playlist em loop</label>
-      </div>
-      <div class="checkbox-row" id="overlayRow" style="display:none">
-        <input type="checkbox" id="useOverlay" checked>
-        <label for="useOverlay">Layout horizontal com overlay LC</label>
-      </div>
+      <div class="checkbox-row"><input type="checkbox" id="loop" checked><label for="loop">Repetir playlist em loop</label></div>
+      <div class="checkbox-row" id="overlayRow" style="display:none"><input type="checkbox" id="useOverlay" checked><label for="useOverlay">Layout horizontal com overlay LC</label></div>
       <div id="overlayInfo" class="overlay-info" style="display:none"></div>
       <div id="topTitleSection" style="display:none;margin-bottom:14px;">
         <label>Titulo no topo do video (opcional)</label>
         <input type="text" id="topTitle" placeholder="Ex: BLACK FRIDAY: Descontos de ate 30%">
         <div class="source-hint">Aparece na faixa de blur acima do video. Deixe vazio pra nao mostrar.</div>
       </div>
+      <div class="checkbox-row" id="autoSubsRow" style="display:none"><input type="checkbox" id="autoSubs"><label for="autoSubs">Gerar legendas automaticas (Whisper)</label></div>
       <div id="subtitleSection" style="display:none;margin-bottom:14px;">
-        <label>Legendas SRT (opcional)</label>
+        <label>Legendas SRT manuais (opcional)</label>
         <textarea id="subtitleSrt" rows="3" placeholder="1&#10;00:00:01,000 --> 00:00:05,000&#10;Bem-vindos!" style="font-family:monospace;font-size:12px;"></textarea>
         <button class="btn btn-secondary" onclick="uploadSubtitles()">Salvar legendas</button>
       </div>
@@ -163,270 +135,59 @@
         <textarea id="streamKey" rows="2" placeholder="Cole a chave de stream"></textarea>
       </div>
       <button class="btn btn-start" id="btnStart" onclick="startStream()">Iniciar Live</button>
-      <p class="help">
-        1. No Instagram (desktop): Criar &rarr; Video ao vivo &rarr; Avancar<br>
-        2. Aqui: adicione os videos e clique Iniciar<br>
-        3. No Instagram: clique "Transmitir ao vivo" quando o preview aparecer
-      </p>
+      <p class="help">1. No Instagram (desktop): Criar &rarr; Video ao vivo &rarr; Avancar<br>2. Aqui: adicione os videos e clique Iniciar<br>3. No Instagram: clique "Transmitir ao vivo" quando o preview aparecer</p>
     </div>
-
     <div id="livePanel" class="card" style="display:none">
       <h2>Ao Vivo</h2>
       <div class="uptime" id="uptime">00:00:00</div>
-      <div id="liveVideoCount" style="font-size: 13px; color: #888; margin-top: 4px;"></div>
-      <div id="liveOverlayInfo" style="font-size: 12px; color: #0100FE; margin-top: 4px;"></div>
-      <div style="margin-top: 16px;"><button class="btn btn-stop" onclick="stopStream()">Parar Live</button></div>
-
+      <div id="liveVideoCount" style="font-size:13px;color:#888;margin-top:4px;"></div>
+      <div id="liveOverlayInfo" style="font-size:12px;color:#0100FE;margin-top:4px;"></div>
+      <div style="margin-top:16px;"><button class="btn btn-stop" onclick="stopStream()">Parar Live</button></div>
       <div class="swap-section">
         <h3>Trocar video sem parar a live</h3>
-        <div id="swapVideoList">
-          <div class="video-row"><span class="num">1.</span><input type="text" placeholder="Novo video (Drive ou YouTube)"></div>
-        </div>
+        <div id="swapVideoList"><div class="video-row"><span class="num">1.</span><input type="text" placeholder="Novo video (Drive ou YouTube)"></div></div>
         <button class="btn-add" onclick="addSwapVideoField()">+ Adicionar video</button>
         <button class="btn btn-swap" id="btnSwap" onclick="swapVideos(false)">Trocar (quando o atual terminar)</button>
         <button class="btn btn-swap" id="btnSwapNow" onclick="swapVideos(true)" style="background:#e67e22;">Trocar agora (pausa de ~3s)</button>
       </div>
     </div>
-
     <div class="card">
       <h2>Logs</h2>
       <div class="logs" id="logsContainer"><div class="log-entry">Aguardando...</div></div>
       <button class="btn btn-secondary" onclick="clearCache()">Limpar cache de videos</button>
     </div>
   </div>
-
   <script>
-    let KEY='';
-    let pollInterval=null, uptimeInterval=null, streamStartTime=null;
-    let overlayConfig=null;
-    let progressPoll=null;
-
-    const STAGE_LABELS = {
-      'downloading': 'Download',
-      'normalizing': 'Processando',
-      'transcribing': 'Legendas',
-      'starting': 'Conectando',
-      'live': 'Ao Vivo'
-    };
-    const STAGE_ORDER = ['downloading', 'normalizing', 'starting'];
-
-    function doLogin() {
-      KEY=document.getElementById('adminKey').value; if(!KEY) return;
-      fetch('/api/stream/status?key='+KEY).then(r=>{if(r.status===401){alert('Senha incorreta');return;}
-        document.getElementById('login').style.display='none';
-        document.getElementById('dashboard').style.display='block';
-        loadDefaults(); loadOverlayInfo(); loadVideoHistory(); startPolling(); fetchLogs();
-      }).catch(()=>alert('Erro de conexao'));
-    }
+    let KEY='',pollInterval=null,uptimeInterval=null,streamStartTime=null,overlayConfig=null,progressPoll=null;
+    const STAGE_LABELS={downloading:'Download',normalizing:'Processando',transcribing:'Legendas',starting:'Conectando',live:'Ao Vivo'};
+    function doLogin(){KEY=document.getElementById('adminKey').value;if(!KEY)return;fetch('/api/stream/status?key='+KEY).then(r=>{if(r.status===401){alert('Senha incorreta');return;}document.getElementById('login').style.display='none';document.getElementById('dashboard').style.display='block';loadDefaults();loadOverlayInfo();loadVideoHistory();startPolling();fetchLogs();}).catch(()=>alert('Erro de conexao'));}
     function apiHeaders(){return{'Content-Type':'application/json','X-Admin-Key':KEY};}
-
-    async function loadDefaults(){
-      try{const r=await fetch('/api/defaults?key='+KEY);const d=await r.json();
-        if(d.streamUrl){document.getElementById('streamUrl').value=d.streamUrl;document.getElementById('streamUrl').classList.add('prefilled');}
-        if(d.streamKey){document.getElementById('streamKey').value=d.streamKey;document.getElementById('streamKey').classList.add('prefilled');document.getElementById('prefilledNote').style.display='block';}
-        if(d.account){document.getElementById('accountName').textContent='@'+d.account;}
-      }catch(e){}
-    }
-
-    async function loadOverlayInfo(){
-      try{const r=await fetch('/api/overlay?key='+KEY);const o=await r.json();
-        overlayConfig=o;
-        if(o.name){
-          document.getElementById('overlayRow').style.display='flex';
-          document.getElementById('topTitleSection').style.display='block';
-          document.getElementById('subtitleSection').style.display='block';
-          document.getElementById('overlayInfo').style.display='block';
-          document.getElementById('overlayInfo').textContent='Overlay: '+o.name+(o.destinations?' | '+o.destinations:'')+(o.logoReady?' | Logo pronta':' | Sem logo');
-        }
-      }catch(e){}
-    }
-
-    async function loadVideoHistory(){
-      try{
-        const r=await fetch('/api/video-history?key='+KEY);
-        const list=await r.json();
-        if(!list||list.length===0){document.getElementById('historySection').style.display='none';return;}
-        document.getElementById('historySection').style.display='block';
-        const grid=document.getElementById('historyGrid');
-        grid.innerHTML=list.map(v => {
-          const icon = v.source==='youtube' ? '▶' : '☁';
-          const srcBadge = v.source==='youtube' ? '<span class="hc-badge yt">YT</span>' : '<span class="hc-badge drive">Drive</span>';
-          const oriBadge = v.orientation==='horizontal' ? '<span class="hc-badge horiz">H</span>' : '<span class="hc-badge vert">V</span>';
-          const ago = timeAgo(v.lastUsed);
-          return '<div class="history-card" onclick="useHistoryVideo(\''+encodeURIComponent(v.url)+'\')">'
-            + '<div class="hc-icon">'+icon+'</div>'
-            + '<div class="hc-label">'+escHtml(v.label)+'</div>'
-            + '<div class="hc-meta">'+srcBadge+oriBadge+'<span>'+v.sizeMB+'MB</span></div>'
-            + '<div class="hc-meta" style="margin-top:2px"><span>'+ago+'</span></div>'
-            + '</div>';
-        }).join('');
-      }catch(e){}
-    }
-
-    function useHistoryVideo(encodedUrl){
-      const url = decodeURIComponent(encodedUrl);
-      // Find first empty input or add new
-      const inputs = document.querySelectorAll('#videoList input');
-      let filled = false;
-      for (const inp of inputs) {
-        if (!inp.value.trim()) { inp.value = url; inp.classList.add('prefilled'); filled = true; break; }
-      }
-      if (!filled) {
-        addVideoField();
-        const newInputs = document.querySelectorAll('#videoList input');
-        const last = newInputs[newInputs.length - 1];
-        last.value = url;
-        last.classList.add('prefilled');
-      }
-    }
-
-    function timeAgo(iso){
-      const diff = Date.now() - new Date(iso).getTime();
-      const mins = Math.floor(diff/60000);
-      if(mins < 1) return 'agora';
-      if(mins < 60) return mins+'min';
-      const hrs = Math.floor(mins/60);
-      if(hrs < 24) return hrs+'h';
-      const days = Math.floor(hrs/24);
-      return days+'d';
-    }
-
+    async function loadDefaults(){try{const r=await fetch('/api/defaults?key='+KEY);const d=await r.json();if(d.streamUrl){document.getElementById('streamUrl').value=d.streamUrl;document.getElementById('streamUrl').classList.add('prefilled');}if(d.streamKey){document.getElementById('streamKey').value=d.streamKey;document.getElementById('streamKey').classList.add('prefilled');document.getElementById('prefilledNote').style.display='block';}if(d.account){document.getElementById('accountName').textContent='@'+d.account;}}catch(e){}}
+    async function loadOverlayInfo(){try{const r=await fetch('/api/overlay?key='+KEY);const o=await r.json();overlayConfig=o;if(o.name){document.getElementById('overlayRow').style.display='flex';document.getElementById('topTitleSection').style.display='block';document.getElementById('subtitleSection').style.display='block';document.getElementById('overlayInfo').style.display='block';document.getElementById('overlayInfo').textContent='Overlay: '+o.name+(o.destinations?' | '+o.destinations:'')+(o.logoReady?' | Logo pronta':' | Sem logo');}if(o.whisperReady){document.getElementById('autoSubsRow').style.display='flex';}}catch(e){}}
+    async function loadVideoHistory(){try{const r=await fetch('/api/video-history?key='+KEY);const list=await r.json();if(!list||list.length===0){document.getElementById('historySection').style.display='none';return;}document.getElementById('historySection').style.display='block';const grid=document.getElementById('historyGrid');grid.innerHTML=list.map(v=>{const icon=v.source==='youtube'?'▶':'☁';const srcBadge=v.source==='youtube'?'<span class="hc-badge yt">YT</span>':'<span class="hc-badge drive">Drive</span>';const oriBadge=v.orientation==='horizontal'?'<span class="hc-badge horiz">H</span>':'<span class="hc-badge vert">V</span>';return'<div class="history-card" onclick="useHistoryVideo(\''+encodeURIComponent(v.url)+'\')"><div class="hc-icon">'+icon+'</div><div class="hc-label">'+escHtml(v.label)+'</div><div class="hc-meta">'+srcBadge+oriBadge+'<span>'+v.sizeMB+'MB</span></div><div class="hc-meta" style="margin-top:2px"><span>'+timeAgo(v.lastUsed)+'</span></div></div>';}).join('');}catch(e){}}
+    function useHistoryVideo(eu){const url=decodeURIComponent(eu);const inputs=document.querySelectorAll('#videoList input');let filled=false;for(const inp of inputs){if(!inp.value.trim()){inp.value=url;inp.classList.add('prefilled');filled=true;break;}}if(!filled){addVideoField();const ni=document.querySelectorAll('#videoList input');ni[ni.length-1].value=url;ni[ni.length-1].classList.add('prefilled');}}
+    function timeAgo(iso){const diff=Date.now()-new Date(iso).getTime();const mins=Math.floor(diff/60000);if(mins<1)return'agora';if(mins<60)return mins+'min';const hrs=Math.floor(mins/60);if(hrs<24)return hrs+'h';return Math.floor(hrs/24)+'d';}
     function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-
-    async function uploadSubtitles(){
-      const srt=document.getElementById('subtitleSrt').value;
-      try{const r=await fetch('/api/subtitles',{method:'POST',headers:apiHeaders(),body:JSON.stringify({srt})});
-        const d=await r.json();alert(d.message);
-      }catch(e){alert('Erro');}
-    }
-
-    // Progress bar
-    function startProgressPolling() {
-      const c = document.getElementById('progressContainer');
-      c.classList.add('active');
-      updateProgressUI({ active: true, stage: 'downloading', message: 'Iniciando...', video: 0, total: 0, percent: 0 });
-      if (progressPoll) clearInterval(progressPoll);
-      progressPoll = setInterval(fetchProgress, 1200);
-    }
-
-    function stopProgressPolling() {
-      if (progressPoll) { clearInterval(progressPoll); progressPoll = null; }
-      document.getElementById('progressContainer').classList.remove('active');
-    }
-
-    async function fetchProgress() {
-      try {
-        const r = await fetch('/api/progress?key=' + KEY);
-        const p = await r.json();
-        if (!p.active) { stopProgressPolling(); return; }
-        updateProgressUI(p);
-      } catch(e) {}
-    }
-
-    function updateProgressUI(p) {
-      document.getElementById('progressStage').textContent = STAGE_LABELS[p.stage] || p.stage || 'Preparando...';
-      document.getElementById('progressPct').textContent = p.percent + '%';
-      document.getElementById('progressMsg').textContent = p.message || '';
-      document.getElementById('progressFill').style.width = p.percent + '%';
-      const currentIdx = STAGE_ORDER.indexOf(p.stage);
-      document.querySelectorAll('.progress-step').forEach((el, i) => {
-        el.classList.remove('done', 'current');
-        if (currentIdx >= 0) {
-          if (i < currentIdx) el.classList.add('done');
-          else if (i === currentIdx) el.classList.add('current');
-        }
-        if (p.stage === 'transcribing') { if (i === 0) el.classList.add('done'); if (i === 1) el.classList.add('current'); }
-        if (p.stage === 'live') el.classList.add('done');
-      });
-    }
-
-    function addVideoField(){
-      const list=document.getElementById('videoList');const c=list.children.length+1;
-      const row=document.createElement('div');row.className='video-row';
-      row.innerHTML='<span class="num">'+c+'.</span><input type="text" placeholder="https://drive.google.com/file/d/... ou https://youtube.com/watch?v=..."><button class="btn-remove" onclick="removeVideoField(this)">&times;</button>';
-      list.appendChild(row);
-    }
+    async function uploadSubtitles(){const srt=document.getElementById('subtitleSrt').value;try{const r=await fetch('/api/subtitles',{method:'POST',headers:apiHeaders(),body:JSON.stringify({srt})});const d=await r.json();alert(d.message);}catch(e){alert('Erro');}}
+    function startProgressPolling(){document.getElementById('progressContainer').classList.add('active');updateProgressUI({active:true,stage:'downloading',globalPercent:0,message:'Iniciando...'});if(progressPoll)clearInterval(progressPoll);progressPoll=setInterval(fetchProgress,1000);}
+    function stopProgressPolling(){if(progressPoll){clearInterval(progressPoll);progressPoll=null;}document.getElementById('progressContainer').classList.remove('active');}
+    async function fetchProgress(){try{const r=await fetch('/api/progress?key='+KEY);const p=await r.json();if(!p.active){stopProgressPolling();return;}updateProgressUI(p);}catch(e){}}
+    function updateProgressUI(p){document.getElementById('progressStage').textContent=STAGE_LABELS[p.stage]||'Preparando...';document.getElementById('progressPct').textContent=p.globalPercent+'%';document.getElementById('progressMsg').textContent=p.message||'';document.getElementById('progressFill').style.width=p.globalPercent+'%';}
+    function addVideoField(){const list=document.getElementById('videoList');const c=list.children.length+1;const row=document.createElement('div');row.className='video-row';row.innerHTML='<span class="num">'+c+'.</span><input type="text" placeholder="https://drive.google.com/file/d/... ou https://youtube.com/watch?v=..."><button class="btn-remove" onclick="removeVideoField(this)">&times;</button>';list.appendChild(row);}
     function removeVideoField(btn){btn.parentElement.remove();document.querySelectorAll('#videoList .video-row').forEach((r,i)=>{r.querySelector('.num').textContent=(i+1)+'.';});}
     function getVideoUrls(){return Array.from(document.querySelectorAll('#videoList input')).map(i=>i.value.trim()).filter(v=>v);}
-
-    function addSwapVideoField(){
-      const list=document.getElementById('swapVideoList');const c=list.children.length+1;
-      const row=document.createElement('div');row.className='video-row';
-      row.innerHTML='<span class="num">'+c+'.</span><input type="text" placeholder="Novo video (Drive ou YouTube)"><button class="btn-remove" onclick="removeSwapField(this)">&times;</button>';
-      list.appendChild(row);
-    }
+    function addSwapVideoField(){const list=document.getElementById('swapVideoList');const c=list.children.length+1;const row=document.createElement('div');row.className='video-row';row.innerHTML='<span class="num">'+c+'.</span><input type="text" placeholder="Novo video (Drive ou YouTube)"><button class="btn-remove" onclick="removeSwapField(this)">&times;</button>';list.appendChild(row);}
     function removeSwapField(btn){btn.parentElement.remove();document.querySelectorAll('#swapVideoList .video-row').forEach((r,i)=>{r.querySelector('.num').textContent=(i+1)+'.';});}
     function getSwapUrls(){return Array.from(document.querySelectorAll('#swapVideoList input')).map(i=>i.value.trim()).filter(v=>v);}
-
-    function toggleDetails(){
-      const d=document.getElementById('rtmpDetails'),b=document.getElementById('toggleBtn');
-      if(d.classList.contains('details-hidden')){d.classList.remove('details-hidden');b.textContent='Esconder config RTMP';}
-      else{d.classList.add('details-hidden');b.textContent='Mostrar config RTMP';}
-    }
-
-    async function startStream(){
-      const streamUrl=document.getElementById('streamUrl').value.trim();
-      const streamKey=document.getElementById('streamKey').value.trim();
-      const videoUrls=getVideoUrls();
-      const loop=document.getElementById('loop').checked;
-      const useOverlay=document.getElementById('useOverlay').checked;
-      const topTitle=(document.getElementById('topTitle').value||'').trim();
-      if(!streamKey){alert('Chave de stream nao encontrada.');return;}
-      if(videoUrls.length===0){alert('Adicione pelo menos um video');return;}
-      const btn=document.getElementById('btnStart');btn.disabled=true;btn.textContent='Preparando...';
-      startProgressPolling();
-      try{
-        const r=await fetch('/api/stream/start',{method:'POST',headers:apiHeaders(),body:JSON.stringify({streamUrl,streamKey,videoUrls,loop,useOverlay,topTitle})});
-        const d=await r.json();
-        if(d.error){alert('Erro: '+d.error);btn.disabled=false;btn.textContent='Iniciar Live';stopProgressPolling();return;}
-        // Refresh history after stream starts (new videos may have been added)
-        setTimeout(loadVideoHistory, 2000);
-        fetchLogs();
-      }catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent='Iniciar Live';stopProgressPolling();}
-    }
-
-    async function swapVideos(immediate){
-      const videoUrls=getSwapUrls();
-      if(videoUrls.length===0){alert('Cole pelo menos um video novo');return;}
-      const btnId=immediate?'btnSwapNow':'btnSwap';
-      const btn=document.getElementById(btnId);btn.disabled=true;btn.textContent='Trocando...';
-      startProgressPolling();
-      const endpoint=immediate?'/api/stream/swap-now':'/api/stream/swap';
-      try{
-        const r=await fetch(endpoint,{method:'POST',headers:apiHeaders(),body:JSON.stringify({videoUrls})});
-        const d=await r.json();
-        if(d.error){alert('Erro: '+d.error);}
-        else{alert(d.message);}
-        btn.disabled=false;btn.textContent=immediate?'Trocar agora (pausa de ~3s)':'Trocar (quando o atual terminar)';
-        stopProgressPolling();
-        setTimeout(loadVideoHistory, 2000);
-        fetchLogs();
-      }catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent=immediate?'Trocar agora (pausa de ~3s)':'Trocar (quando o atual terminar)';stopProgressPolling();}
-    }
-
+    function toggleDetails(){const d=document.getElementById('rtmpDetails'),b=document.getElementById('toggleBtn');if(d.classList.contains('details-hidden')){d.classList.remove('details-hidden');b.textContent='Esconder config RTMP';}else{d.classList.add('details-hidden');b.textContent='Mostrar config RTMP';}}
+    async function startStream(){const streamUrl=document.getElementById('streamUrl').value.trim();const streamKey=document.getElementById('streamKey').value.trim();const videoUrls=getVideoUrls();const loop=document.getElementById('loop').checked;const useOverlay=document.getElementById('useOverlay')?document.getElementById('useOverlay').checked:false;const topTitle=(document.getElementById('topTitle').value||'').trim();const autoSubs=document.getElementById('autoSubs')?document.getElementById('autoSubs').checked:false;if(!streamKey){alert('Chave de stream nao encontrada.');return;}if(videoUrls.length===0){alert('Adicione pelo menos um video');return;}const btn=document.getElementById('btnStart');btn.disabled=true;btn.textContent='Preparando...';startProgressPolling();try{const r=await fetch('/api/stream/start',{method:'POST',headers:apiHeaders(),body:JSON.stringify({streamUrl,streamKey,videoUrls,loop,useOverlay,topTitle,autoSubs})});const d=await r.json();if(d.error){alert('Erro: '+d.error);btn.disabled=false;btn.textContent='Iniciar Live';stopProgressPolling();return;}setTimeout(loadVideoHistory,5000);fetchLogs();}catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent='Iniciar Live';stopProgressPolling();}}
+    async function swapVideos(immediate){const videoUrls=getSwapUrls();if(videoUrls.length===0){alert('Cole pelo menos um video novo');return;}const btnId=immediate?'btnSwapNow':'btnSwap';const btn=document.getElementById(btnId);btn.disabled=true;btn.textContent='Trocando...';startProgressPolling();const endpoint=immediate?'/api/stream/swap-now':'/api/stream/swap';try{const r=await fetch(endpoint,{method:'POST',headers:apiHeaders(),body:JSON.stringify({videoUrls})});const d=await r.json();if(d.error){alert('Erro: '+d.error);}else{alert(d.message);}btn.disabled=false;btn.textContent=immediate?'Trocar agora (pausa de ~3s)':'Trocar (quando o atual terminar)';stopProgressPolling();setTimeout(loadVideoHistory,2000);fetchLogs();}catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent=immediate?'Trocar agora (pausa de ~3s)':'Trocar (quando o atual terminar)';stopProgressPolling();}}
     async function stopStream(){if(!confirm('Parar a live?'))return;await fetch('/api/stream/stop',{method:'POST',headers:apiHeaders()});stopProgressPolling();fetchLogs();}
     async function clearCache(){if(!confirm('Remover videos em cache?'))return;const r=await fetch('/api/cache/clear',{method:'POST',headers:apiHeaders()});const d=await r.json();alert(d.removed+' arquivo(s) removido(s)');}
-
-    function updateUI(status){
-      const bar=document.getElementById('statusBar'),dot=document.getElementById('statusDot'),text=document.getElementById('statusText');
-      const sp=document.getElementById('startPanel'),lp=document.getElementById('livePanel'),btn=document.getElementById('btnStart');
-      if(status.streaming){
-        bar.className='status-bar live';dot.className='dot on';text.textContent='AO VIVO';
-        sp.style.display='none';lp.style.display='block';
-        document.getElementById('liveVideoCount').textContent=status.videoUrls?status.videoUrls.length+' video(s) na playlist':'';
-        document.getElementById('liveOverlayInfo').textContent=status.overlay&&status.overlay!=='off'?'Overlay: '+status.overlay:'';
-        streamStartTime=new Date(status.startedAt);if(!uptimeInterval)uptimeInterval=setInterval(updateUptime,1000);
-        stopProgressPolling();
-      }else{
-        bar.className='status-bar offline';dot.className='dot off';text.textContent='Offline';
-        sp.style.display='block';lp.style.display='none';btn.disabled=false;btn.textContent='Iniciar Live';
-        streamStartTime=null;if(uptimeInterval){clearInterval(uptimeInterval);uptimeInterval=null;}
-        document.getElementById('uptime').textContent='00:00:00';
-      }
-    }
+    function updateUI(status){const bar=document.getElementById('statusBar'),dot=document.getElementById('statusDot'),text=document.getElementById('statusText');const sp=document.getElementById('startPanel'),lp=document.getElementById('livePanel'),btn=document.getElementById('btnStart');if(status.streaming){bar.className='status-bar live';dot.className='dot on';text.textContent='AO VIVO';sp.style.display='none';lp.style.display='block';document.getElementById('liveVideoCount').textContent=status.videoUrls?status.videoUrls.length+' video(s) na playlist':'';document.getElementById('liveOverlayInfo').textContent=status.overlay&&status.overlay!=='off'?'Overlay: '+status.overlay:'';streamStartTime=new Date(status.startedAt);if(!uptimeInterval)uptimeInterval=setInterval(updateUptime,1000);stopProgressPolling();}else if(status.processing){bar.className='status-bar processing';dot.className='dot prep';text.textContent='Preparando...';sp.style.display='block';lp.style.display='none';btn.disabled=true;btn.textContent='Preparando...';if(!progressPoll)startProgressPolling();}else{bar.className='status-bar offline';dot.className='dot off';text.textContent='Offline';sp.style.display='block';lp.style.display='none';btn.disabled=false;btn.textContent='Iniciar Live';streamStartTime=null;if(uptimeInterval){clearInterval(uptimeInterval);uptimeInterval=null;}document.getElementById('uptime').textContent='00:00:00';}}
     function updateUptime(){if(!streamStartTime)return;const d=Math.floor((Date.now()-streamStartTime.getTime())/1000);const h=String(Math.floor(d/3600)).padStart(2,'0');const m=String(Math.floor((d%3600)/60)).padStart(2,'0');const s=String(d%60).padStart(2,'0');document.getElementById('uptime').textContent=h+':'+m+':'+s;}
     async function fetchStatus(){try{const r=await fetch('/api/stream/status?key='+KEY);updateUI(await r.json());}catch(e){}}
-    async function fetchLogs(){try{const r=await fetch('/api/logs?key='+KEY);const d=await r.json();const c=document.getElementById('logsContainer');c.innerHTML=d.logs.map(l=>{let cls='log-entry';if(l.toLowerCase().includes('error'))cls+=' error';if(l.includes('complete')||l.includes('started'))cls+=' success';return '<div class="'+cls+'">'+l+'</div>';}).join('');c.scrollTop=c.scrollHeight;}catch(e){}}
+    async function fetchLogs(){try{const r=await fetch('/api/logs?key='+KEY);const d=await r.json();const c=document.getElementById('logsContainer');c.innerHTML=d.logs.map(l=>{let cls='log-entry';if(l.toLowerCase().includes('error'))cls+=' error';if(l.includes('complete')||l.includes('started'))cls+=' success';return'<div class="'+cls+'">'+l+'</div>';}).join('');c.scrollTop=c.scrollHeight;}catch(e){}}
     function startPolling(){fetchStatus();pollInterval=setInterval(()=>{fetchStatus();fetchLogs();},3000);}
     if(window.location.hash){document.getElementById('adminKey').value=window.location.hash.slice(1);doLogin();}
   </script>
