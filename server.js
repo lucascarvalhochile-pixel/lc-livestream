@@ -24,7 +24,9 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 const VIDEO_HISTORY_PATH = path.join(DATA_DIR, 'video_history.json');
 const STREAM_DEFAULTS_PATH = path.join(DATA_DIR, 'stream_defaults.json');
 let currentTopTitle = '';
-let overlayTopH = 600, overlayBotY = 1155;
+// Pixel-exact boundaries measured from overlay_caribe_raw.png:
+// Header solid blue ends at y=576, footer solid blue starts at y=1173
+let overlayTopH = 577, overlayBotY = 1173;
 
 if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
 
@@ -109,32 +111,34 @@ function downloadOverlayFromUrl(url) {
   } catch(e) { log('Overlay download error: ' + e.message); try { fs.unlinkSync(cj); } catch(ex) {} return false; }
 }
 
-// Scale overlay to exactly 1080x1920, then split into top and bottom bands
+// Scale overlay to exactly 1080x1920 if needed, then split into top and bottom bands
 function splitOverlayBands() {
   if (fs.existsSync(OVERLAY_TOP_PATH) && fs.existsSync(OVERLAY_BOT_PATH)) { log('Overlay bands: cached'); return true; }
   if (!fs.existsSync(OVERLAY_RAW_PATH)) return false;
   try {
     log('Splitting overlay into top+bottom bands...');
-    // First: detect original size
     const info = getVideoInfo(OVERLAY_RAW_PATH);
     const origW = info ? info.width : 0;
     const origH = info ? info.height : 0;
     log('Overlay original: ' + origW + 'x' + origH);
 
-    // Scale to exactly 1080x1920 first (the Canva overlay may not be exact)
-    execSync('ffmpeg -i "' + OVERLAY_RAW_PATH + '" -vf "scale=1080:1920:flags=lanczos" -y "' + OVERLAY_SCALED_PATH + '"', { timeout: 15000 });
-    log('Overlay scaled to 1080x1920');
+    // Use raw directly if already 1080x1920, otherwise scale
+    let srcPath = OVERLAY_RAW_PATH;
+    if (origW !== 1080 || origH !== 1920) {
+      execSync('ffmpeg -i "' + OVERLAY_RAW_PATH + '" -vf "scale=1080:1920:flags=lanczos" -y "' + OVERLAY_SCALED_PATH + '"', { timeout: 15000 });
+      srcPath = OVERLAY_SCALED_PATH;
+      log('Overlay scaled to 1080x1920');
+    }
 
-    // Crop top band: 1080x600 from y=0
-    execSync('ffmpeg -i "' + OVERLAY_SCALED_PATH + '" -vf "crop=1080:' + overlayTopH + ':0:0" -update 1 -y "' + OVERLAY_TOP_PATH + '"', { timeout: 15000 });
-    // Crop bottom band: 1080x(1920-botY) from y=botY
+    // Crop top band: solid header (0 to overlayTopH-1)
+    execSync('ffmpeg -i "' + srcPath + '" -vf "crop=1080:' + overlayTopH + ':0:0" -update 1 -y "' + OVERLAY_TOP_PATH + '"', { timeout: 15000 });
+    // Crop bottom band: solid footer (overlayBotY to 1919)
     const botH = 1920 - overlayBotY;
-    execSync('ffmpeg -i "' + OVERLAY_SCALED_PATH + '" -vf "crop=1080:' + botH + ':0:' + overlayBotY + '" -update 1 -y "' + OVERLAY_BOT_PATH + '"', { timeout: 15000 });
+    execSync('ffmpeg -i "' + srcPath + '" -vf "crop=1080:' + botH + ':0:' + overlayBotY + '" -update 1 -y "' + OVERLAY_BOT_PATH + '"', { timeout: 15000 });
 
     const ts = fs.statSync(OVERLAY_TOP_PATH).size;
     const bs = fs.statSync(OVERLAY_BOT_PATH).size;
-    log('Overlay bands: top ' + Math.round(ts/1024) + 'KB (' + overlayTopH + 'px), bottom ' + Math.round(bs/1024) + 'KB (' + botH + 'px from y=' + overlayBotY + ')');
-    // Cleanup scaled intermediate
+    log('Overlay bands: top ' + Math.round(ts/1024) + 'KB (h=' + overlayTopH + '), bottom ' + Math.round(bs/1024) + 'KB (h=' + botH + ' from y=' + overlayBotY + ')');
     try { fs.unlinkSync(OVERLAY_SCALED_PATH); } catch(e) {}
     return ts > 1000 && bs > 1000;
   } catch(e) { log('Overlay split error: ' + e.message); return false; }
@@ -143,10 +147,8 @@ function splitOverlayBands() {
 function setupOverlay() {
   if (!OVERLAY_NAME) { overlayReady = false; return; }
   if (fs.existsSync(OVERLAY_TOP_PATH) && fs.existsSync(OVERLAY_BOT_PATH)) { log('Overlay: ready (bands cached)'); overlayReady = true; return; }
-  // Download from URL
   const ovlUrl = savedDefaults.overlayUrl || process.env.OVERLAY_URL || '';
   if (ovlUrl && !fs.existsSync(OVERLAY_RAW_PATH)) { downloadOverlayFromUrl(ovlUrl); }
-  // Split into bands
   if (fs.existsSync(OVERLAY_RAW_PATH)) { overlayReady = splitOverlayBands(); if (overlayReady) return; }
   log('No overlay found'); overlayReady = false;
 }
@@ -200,13 +202,12 @@ function transcribeVideo(videoPath) {
   });
 }
 
-// Two-band overlay: paste top and bottom images over the video (no transparency)
+// Two-band overlay: paste top and bottom solid images over the video
 function buildOverlayFilter(useOverlay) {
   let filter = '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2';
   const inputs = []; let idx = 1;
   if (useOverlay && overlayReady && fs.existsSync(OVERLAY_TOP_PATH) && fs.existsSync(OVERLAY_BOT_PATH)) {
     inputs.push('-i', OVERLAY_TOP_PATH, '-i', OVERLAY_BOT_PATH);
-    // Paste top band at y=0, bottom band at y=botY
     filter += '[base];[base][' + idx + ':v]overlay=0:0[t];[t][' + (idx+1) + ':v]overlay=0:' + overlayBotY;
     idx += 2;
   }
@@ -314,7 +315,7 @@ app.post('/api/stream/start',auth,(req,res)=>{
       let ffmpeg,cf=null;
       if(videoPaths.length===1) ffmpeg=startSingleFFmpeg(videoPaths[0],rtmpUrl,!!loop,!!useOverlay);
       else{cf=writeConcatFile(videoPaths);ffmpeg=startFFmpegConcat(cf,rtmpUrl,!!loop);}
-      log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'on (bands)':'off'));
+      log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'on (bands)':'off')+' | topH='+overlayTopH+' botY='+overlayBotY);
       currentStream={id:uuidv4().slice(0,8),process:ffmpeg,startedAt:new Date().toISOString(),videoUrls:urls,videoPaths,loop:!!loop,useOverlay:!!useOverlay,rtmpUrl,concatFile:cf};
       attachFFmpegHandlers(ffmpeg);
       await new Promise(r=>setTimeout(r,3000));
@@ -341,5 +342,5 @@ app.get('/health',(req,res)=>{res.json({status:'ok',streaming:!!currentStream,pr
   loadVideoHistory();
   loadStreamDefaults();
   setupOverlay();
-  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT+' | data: '+DATA_DIR);log('Defaults: '+(savedDefaults.streamKey?'key: ...'+savedDefaults.streamKey.slice(-6):'none')+' | overlay: '+(savedDefaults.overlayUrl?'URL set':'none'));log('Overlay: '+(overlayReady?'ready (top+bottom bands)':'not ready'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length);});
+  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT+' | data: '+DATA_DIR);log('Defaults: '+(savedDefaults.streamKey?'key: ...'+savedDefaults.streamKey.slice(-6):'none')+' | overlay: '+(savedDefaults.overlayUrl?'URL set':'none'));log('Overlay: '+(overlayReady?'ready (top='+overlayTopH+' bot='+overlayBotY+')':'not ready'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length);});
 })();
