@@ -30,6 +30,11 @@ const CONTENT_BOT_START = 1168;
 const FFPRESET = 'ultrafast';
 
 if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
+const PREENCODED_DIR = path.join(VIDEOS_DIR, 'preencoded');
+if (!fs.existsSync(PREENCODED_DIR)) fs.mkdirSync(PREENCODED_DIR, { recursive: true });
+let preEncodeStatus = { active: false, progress: '', videoUrl: '' };
+function getPreencodedPath(videoUrl) { const hash = require('crypto').createHash('md5').update(videoUrl + (savedDefaults.overlayUrl || '')).digest('hex').slice(0,12); return path.join(PREENCODED_DIR, 'pre_' + hash + '.mp4'); }
+
 try { fs.unlinkSync(OVERLAY_TOP_PATH); } catch(e) {}
 try { fs.unlinkSync(OVERLAY_BOT_PATH); } catch(e) {}
 try { fs.unlinkSync(OVERLAY_SCALED_PATH); } catch(e) {}
@@ -176,7 +181,7 @@ function buildOverlayFilter(useOverlay) {
     filter += '[base];[base][' + idx + ':v]overlay=0:0[t];[t][' + (idx+1) + ':v]overlay=0:' + overlayBotY;
     idx += 2;
   }
-  if (currentTopTitle) { const esc = (t) => t.replace(/'/g, "'\\\\\\'''").replace(/:/g, '\\:'); const titleY = Math.max(0, overlayTopH - 45); filter += ',drawbox=x=0:y=' + titleY + ':w=iw:h=40:color=black@0.5:t=fill'; filter += ",drawtext=text='" + esc(currentTopTitle) + "':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=20:fontcolor=white:x=(w-text_w)/2:y=" + (titleY + 10); }
+  if (currentTopTitle) { const esc = (t) => t.replace(/'/g, "'\\\\\\'''\'").replace(/:/g, '\\:'); const titleY = Math.max(0, overlayTopH - 45); filter += ',drawbox=x=0:y=' + titleY + ':w=iw:h=40:color=black@0.5:t=fill'; filter += ",drawtext=text='" + esc(currentTopTitle) + "':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=20:fontcolor=white:x=(w-text_w)/2:y=" + (titleY + 10); }
   if (fs.existsSync(SUBTITLE_PATH)) { filter += ",subtitles=" + SUBTITLE_PATH.replace(/:/g,'\\\\:') + ":force_style='FontSize=24,FontName=DejaVu Sans,PrimaryColour=&Hffffff,OutlineColour=&H000000,Outline=2,Alignment=2,MarginV=350'"; }
   return { filter, inputs };
 }
@@ -188,6 +193,10 @@ function writeConcatFile(vp){const p=path.join(VIDEOS_DIR,'playlist.txt');fs.wri
 function startFFmpegConcat(cf,url,loop){return spawn('ffmpeg',[...(loop?['-stream_loop','-1']:[]),'-re','-f','concat','-safe','0','-i',cf,'-c','copy','-f','flv',url]);}
 function startSingleFFmpeg(vp, rtmpUrl, loop, useOverlay) {
   const info = getVideoInfo(vp); const la = loop ? ['-stream_loop', '-1'] : [];
+  if (info && info.width === 1080 && info.height === 1920) {
+    log('Pre-encoded video detected (1080x1920) - using copy stream');
+    return spawn('ffmpeg', [...la, '-re', '-i', vp, '-c:v', 'copy', '-c:a', 'copy', '-f', 'flv', rtmpUrl]);
+  }
   if (info && info.width > info.height) {
     const { filter, inputs } = buildOverlayFilter(useOverlay);
     return spawn('ffmpeg', [...la, '-re', '-i', vp, ...inputs, '-filter_complex', filter, '-c:v', 'libx264', '-preset', FFPRESET, '-b:v', '4500k', '-maxrate', '6000k', '-bufsize', '12000k', '-pix_fmt', 'yuv420p', '-g', '60', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-f', 'flv', rtmpUrl]);
@@ -215,6 +224,50 @@ app.post('/api/overlay-config',auth,(req,res)=>{
   res.json({ success: true, topH: overlayTopH, botY: overlayBotY, ready: overlayReady });
 });
 
+app.post('/api/pre-encode',auth,async(req,res)=>{
+  if(preEncodeStatus.active) return res.status(400).json({error:'Pre-encode already running',progress:preEncodeStatus.progress});
+  const{videoUrl}=req.body; if(!videoUrl) return res.status(400).json({error:'videoUrl required'});
+  const ovlUrl=savedDefaults.overlayUrl||process.env.OVERLAY_URL||'';
+  if(!ovlUrl) return res.status(400).json({error:'No overlay URL configured'});
+  res.json({success:true,message:'Pre-encoding started...'});
+  preEncodeStatus={active:true,progress:'downloading',videoUrl};
+  (async()=>{try{
+    const vp=await resolveVideo(videoUrl);if(!vp){preEncodeStatus={active:false,progress:'failed: bad video URL',videoUrl};return;}
+    if(!fs.existsSync(OVERLAY_RAW_PATH)){if(!downloadOverlayFromUrl(ovlUrl)){preEncodeStatus={active:false,progress:'failed: overlay download',videoUrl};return;}}
+    const ovlAlpha=path.join(VIDEOS_DIR,'overlay_alpha_gen.png');
+    preEncodeStatus.progress='generating overlay alpha';
+    log('Pre-encode: generating overlay with alpha...');
+    const pyScript='import sys\nfrom PIL import Image\nimport numpy as np\noverlay=Image.open(sys.argv[1]).convert("RGBA").resize((1080,1920),Image.LANCZOS)\nov=np.array(overlay)\nov[:,:,3]=255\nfor y in range(421,1206): ov[y,:,3]=0\nfor y in range(1206,1228):\n for x in range(1080):\n  r,g,b=int(ov[y,x,0]),int(ov[y,x,1]),int(ov[y,x,2])\n  if (r+g+b)/3>140 and max(abs(r-g),abs(g-b),abs(r-b))<30: ov[y,x,3]=0\nfor y in range(1228,1281):\n for x in list(range(0,50))+list(range(1030,1080)):\n  r,g,b=int(ov[y,x,0]),int(ov[y,x,1]),int(ov[y,x,2])\n  if (r+g+b)/3>140 and max(abs(r-g),abs(g-b),abs(r-b))<30: ov[y,x,3]=0\nfor y in range(1281,1295):\n for x in range(1080):\n  r,g,b=int(ov[y,x,0]),int(ov[y,x,1]),int(ov[y,x,2])\n  if (r+g+b)/3>140 and max(abs(r-g),abs(g-b),abs(r-b))<30: ov[y,x,3]=0\nImage.fromarray(ov).save(sys.argv[2])\nprint("OK")';
+    const pyPath=path.join(VIDEOS_DIR,'_gen_alpha.py');
+    fs.writeFileSync(pyPath,pyScript.replace(/\\n/g,'\n'));
+    try{execSync('python3 -I "'+pyPath+'" "'+OVERLAY_RAW_PATH+'" "'+ovlAlpha+'"',{timeout:120000});}catch(e){preEncodeStatus={active:false,progress:'failed: alpha gen: '+e.message,videoUrl};return;}
+    if(!fs.existsSync(ovlAlpha)){preEncodeStatus={active:false,progress:'failed: alpha not created',videoUrl};return;}
+    const outPath=getPreencodedPath(videoUrl);
+    preEncodeStatus.progress='encoding (this takes 10-15 min)';
+    log('Pre-encode: starting FFmpeg composite to '+outPath);
+    const ff=spawn('ffmpeg',['-y','-f','lavfi','-i','color=c=0x000000:s=1080x1920:r=30:d=1','-i',vp,'-i',ovlAlpha,'-filter_complex','[1:v]scale=1422:1000,crop=1080:1000[vid];[0:v][vid]overlay=0:416:shortest=0[base];[base][2:v]overlay=0:0[out]','-map','[out]','-map','1:a','-c:v','libx264','-preset',FFPRESET,'-b:v','4500k','-maxrate','6000k','-bufsize','12000k','-r','30','-g','60','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-ar','44100','-ac','2',outPath]);
+    ff.stderr.on('data',(d)=>{const l=d.toString().trim();if(l.includes('frame=')&&Math.random()<0.05){const m=l.match(/time=(\d+:\d+:\d+)/);if(m)preEncodeStatus.progress='encoding: '+m[1];log('[pre-encode] '+l.substring(0,150));}});
+    ff.on('close',(code)=>{if(code===0&&fs.existsSync(outPath)){const sz=Math.round(fs.statSync(outPath).size/1024/1024);log('Pre-encode DONE: '+sz+'MB -> '+outPath);preEncodeStatus={active:false,progress:'done: '+sz+'MB',videoUrl};}else{log('Pre-encode FAILED code='+code);preEncodeStatus={active:false,progress:'failed: ffmpeg code '+code,videoUrl};}try{fs.unlinkSync(ovlAlpha);}catch(e){}});
+    ff.on('error',(e)=>{log('Pre-encode error: '+e.message);preEncodeStatus={active:false,progress:'failed: '+e.message,videoUrl};});
+  }catch(e){log('Pre-encode error: '+e.message);preEncodeStatus={active:false,progress:'failed: '+e.message,videoUrl};}})();
+});
+app.get('/api/pre-encode/status',auth,(req,res)=>{res.json(preEncodeStatus);});
+app.post('/api/stream/start-preencoded',auth,async(req,res)=>{
+  if(currentStream) return res.status(400).json({error:'Stream already running.'});
+  const{streamUrl,streamKey,videoUrl,loop}=req.body;
+  if(!streamKey||!videoUrl) return res.status(400).json({error:'streamKey and videoUrl required.'});
+  const prePath=getPreencodedPath(videoUrl);
+  if(!fs.existsSync(prePath)) return res.status(400).json({error:'No pre-encoded file for this video. Call /api/pre-encode first.'});
+  saveStreamDefaults({streamUrl,streamKey});
+  const baseUrl=streamUrl&&streamUrl.trim()?streamUrl.trim().replace(/\/$/,''):'rtmps://live-upload.instagram.com:443/rtmp';
+  const rtmpUrl=baseUrl+'/'+streamKey;
+  log('Starting pre-encoded stream (copy mode) to '+baseUrl);
+  const la=loop?['-stream_loop','-1']:[];
+  const ffmpeg=spawn('ffmpeg',[...la,'-re','-i',prePath,'-c:v','copy','-c:a','copy','-f','flv',rtmpUrl]);
+  currentStream={id:uuidv4().slice(0,8),process:ffmpeg,startedAt:new Date().toISOString(),videoUrls:[videoUrl],videoPaths:[prePath],loop:!!loop,useOverlay:true,rtmpUrl,concatFile:null};
+  attachFFmpegHandlers(ffmpeg);
+  res.json({success:true,message:'Stream started (copy mode, no re-encoding)'});
+});
 app.post('/api/stream/start',auth,(req,res)=>{ if(currentStream) return res.status(400).json({error:'Stream already running.'}); if(isProcessing) return res.status(400).json({error:'Ja esta preparando.'}); const{streamUrl,streamKey,videoUrl,videoUrls,loop,useOverlay,topTitle,autoSubs}=req.body; if(!streamKey) return res.status(400).json({error:'streamKey required.'}); let urls=[]; if(videoUrls&&Array.isArray(videoUrls)&&videoUrls.length>0) urls=videoUrls.filter(u=>u&&u.trim()); else if(videoUrl) urls=[videoUrl]; if(urls.length===0) return res.status(400).json({error:'Video URL required.'}); saveStreamDefaults({streamUrl, streamKey}); if (useOverlay && !overlayReady) setupOverlay(); isProcessing=true; currentTopTitle=(topTitle||'').trim(); resetProgress(); setProgress('downloading','Preparando '+urls.length+' video(s)...',1); log('Preparing '+urls.length+' video(s) [preset='+FFPRESET+']'+(useOverlay&&overlayReady?' overlay: '+overlayTopH+'/'+overlayBotY:'')+(autoSubs?' auto-subs':'')); res.json({success:true,status:'processing',message:'Preparando videos...'}); (async()=>{ try{ const videoPaths=await resolveAllVideos(urls,true,!!autoSubs); setProgress('starting','Conectando...',92); const baseUrl=streamUrl&&streamUrl.trim()?streamUrl.trim().replace(/\/$/,''):'rtmps://live-upload.instagram.com:443/rtmp'; const rtmpUrl=baseUrl+'/'+streamKey; let ffmpeg,cf=null; if(videoPaths.length===1) ffmpeg=startSingleFFmpeg(videoPaths[0],rtmpUrl,!!loop,!!useOverlay); else{cf=writeConcatFile(videoPaths);ffmpeg=startFFmpegConcat(cf,rtmpUrl,!!loop);} log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'on ('+overlayTopH+'/'+overlayBotY+')':'off')+' | preset: '+FFPRESET); currentStream={id:uuidv4().slice(0,8),process:ffmpeg,startedAt:new Date().toISOString(),videoUrls:urls,videoPaths,loop:!!loop,useOverlay:!!useOverlay,rtmpUrl,concatFile:cf}; attachFFmpegHandlers(ffmpeg); await new Promise(r=>setTimeout(r,3000)); if(currentStream){setProgress('live','Ao vivo!',100);setTimeout(resetProgress,5000);} else resetProgress(); }catch(err){log('Error: '+err.message);resetProgress();currentStream=null;} finally{isProcessing=false;} })(); });
 app.post('/api/stream/swap',auth,async(req,res)=>{if(!currentStream)return res.status(400).json({error:'No stream.'});const{videoUrl,videoUrls}=req.body;let urls=[];if(videoUrls&&Array.isArray(videoUrls)&&videoUrls.length>0)urls=videoUrls.filter(u=>u&&u.trim());else if(videoUrl)urls=[videoUrl];if(urls.length===0)return res.status(400).json({error:'URL required.'});try{const np=await resolveAllVideos(urls,true,false);if(currentStream.concatFile){fs.writeFileSync(currentStream.concatFile,np.map(p=>"file '"+p+"'").join('\n'));currentStream.videoUrls=urls;currentStream.videoPaths=np;res.json({success:true,message:'Playlist updated.'});}else{await doSwap(urls,np);res.json({success:true,message:'Swapped!'}); }}catch(err){res.status(500).json({error:err.message});}});
 app.post('/api/stream/swap-now',auth,async(req,res)=>{if(!currentStream)return res.status(400).json({error:'No stream.'});const{videoUrl,videoUrls}=req.body;let urls=[];if(videoUrls&&Array.isArray(videoUrls)&&videoUrls.length>0)urls=videoUrls.filter(u=>u&&u.trim());else if(videoUrl)urls=[videoUrl];if(urls.length===0)return res.status(400).json({error:'URL required.'});try{const np=await resolveAllVideos(urls,true,false);await doSwap(urls,np);res.json({success:true,message:'Swapped!'});}catch(err){res.status(500).json({error:err.message});}});
