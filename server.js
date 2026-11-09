@@ -13,6 +13,7 @@ app.use(express.static('public'));
 const PORT = process.env.PORT || 3000;
 const ADMIN_KEY = process.env.ADMIN_KEY || 'lc-live-2026';
 const VIDEOS_DIR = '/tmp/videos';
+const DATA_DIR = fs.existsSync('/data') ? '/data' : VIDEOS_DIR;
 const DEFAULT_STREAM_URL = process.env.DEFAULT_STREAM_URL || '';
 const DEFAULT_STREAM_KEY = process.env.DEFAULT_STREAM_KEY || '';
 const DEFAULT_ACCOUNT = process.env.DEFAULT_ACCOUNT || '';
@@ -20,10 +21,10 @@ const OVERLAY_NAME = process.env.OVERLAY_NAME || '';
 const OVERLAY_DESTINATIONS = process.env.OVERLAY_DESTINATIONS || '';
 const OVERLAY_CTA = process.env.OVERLAY_CTA || '';
 const OVERLAY_URL = process.env.OVERLAY_URL || '';
-const OVERLAY_IMG_PATH = path.join(VIDEOS_DIR, 'overlay_branded.img');
+const OVERLAY_IMG_PATH = path.join(DATA_DIR, 'overlay_branded.img');
 const SUBTITLE_PATH = path.join(VIDEOS_DIR, 'current_subtitles.srt');
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
-const VIDEO_HISTORY_PATH = path.join(VIDEOS_DIR, 'video_history.json');
+const VIDEO_HISTORY_PATH = path.join(DATA_DIR, 'video_history.json');
 let currentTopTitle = '';
 
 if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
@@ -42,19 +43,45 @@ function resetProgress() { streamProgress = { active: false, stage: '', globalPe
 function loadVideoHistory() { try { if (fs.existsSync(VIDEO_HISTORY_PATH)) videoHistory = JSON.parse(fs.readFileSync(VIDEO_HISTORY_PATH, 'utf8')); } catch(e) { videoHistory = []; } }
 function saveVideoHistory() { try { fs.writeFileSync(VIDEO_HISTORY_PATH, JSON.stringify(videoHistory, null, 2)); } catch(e) {} }
 
+function getYouTubeId(url) {
+  let m = url.match(/[?&]v=([^&]+)/); if (m) return m[1];
+  m = url.match(/youtu\.be\/([^?&]+)/); if (m) return m[1];
+  m = url.match(/\/embed\/([^?&]+)/); if (m) return m[1];
+  return null;
+}
+
 function addToVideoHistory(url, videoPath) {
   try {
     const existing = videoHistory.findIndex(v => v.url === url);
     const stats = fs.statSync(videoPath); const info = getVideoInfo(videoPath);
     const sizeMB = Math.round(stats.size / 1024 / 1024);
     const orientation = info && info.width > info.height ? 'horizontal' : 'vertical';
-    let source = 'url'; let label = '';
-    if (isYouTubeUrl(url)) { source = 'youtube'; try { label = execSync('yt-dlp --get-title --no-warnings "' + url + '"', { encoding: 'utf8', timeout: 15000 }).trim(); } catch(e) {} if (!label) { const m = url.match(/[?&]v=([^&]+)/); label = 'YouTube ' + (m ? m[1] : ''); } }
-    else if (extractDriveFileId(url)) { source = 'drive'; label = 'Drive ' + extractDriveFileId(url).slice(0, 8) + '...'; }
-    if (!label) label = url.substring(0, 50); if (label.length > 60) label = label.substring(0, 57) + '...';
-    const entry = { url, label, source, sizeMB, orientation, resolution: info ? info.width+'x'+info.height : '', lastUsed: new Date().toISOString() };
+    let source = 'url'; let label = ''; let thumbnail = '';
+    if (isYouTubeUrl(url)) {
+      source = 'youtube';
+      const ytId = getYouTubeId(url);
+      if (ytId) thumbnail = 'https://img.youtube.com/vi/' + ytId + '/mqdefault.jpg';
+      try { label = execSync('yt-dlp --get-title --no-warnings "' + url + '"', { encoding: 'utf8', timeout: 15000 }).trim(); } catch(e) {}
+      if (!label && ytId) label = 'YouTube ' + ytId;
+    }
+    else if (extractDriveFileId(url)) {
+      source = 'drive';
+      const fid = extractDriveFileId(url);
+      // Try to get the Drive file name from the sharing page title
+      try {
+        const html = execSync('curl -s -L "https://drive.google.com/file/d/' + fid + '/view" 2>/dev/null | head -c 5000', { encoding: 'utf8', timeout: 10000 });
+        const tm = html.match(/<title>([^<]+)<\/title>/i);
+        if (tm && tm[1] && !tm[1].includes('Sign in')) {
+          label = tm[1].replace(' - Google Drive', '').replace(' - Google Docs', '').trim();
+        }
+      } catch(e) {}
+      if (!label) label = 'Drive ' + fid.slice(0, 8) + '...';
+    }
+    if (!label) label = url.substring(0, 50);
+    if (label.length > 80) label = label.substring(0, 77) + '...';
+    const entry = { url, label, source, sizeMB, orientation, thumbnail, resolution: info ? info.width+'x'+info.height : '', lastUsed: new Date().toISOString() };
     if (existing >= 0) videoHistory[existing] = entry; else videoHistory.unshift(entry);
-    if (videoHistory.length > 20) videoHistory = videoHistory.slice(0, 20);
+    if (videoHistory.length > 30) videoHistory = videoHistory.slice(0, 30);
     videoHistory.sort((a, b) => new Date(b.lastUsed) - new Date(a.lastUsed));
     saveVideoHistory();
   } catch(e) { log('History error: ' + e.message); }
@@ -95,10 +122,10 @@ function downloadOverlayFromUrl(url) {
   } catch(e) { log('Overlay download error: ' + e.message); try { fs.unlinkSync(cookieJar); } catch(ex) {} return false; }
 }
 
-// Setup overlay: try .b64 from repo first, then OVERLAY_URL from Drive
+// Setup overlay: try cached in /data, then .b64 from repo, then OVERLAY_URL
 function setupOverlay() {
   if (!OVERLAY_NAME) { overlayReady = false; return; }
-  if (fs.existsSync(OVERLAY_IMG_PATH)) { log('Overlay: cached'); overlayReady = true; return; }
+  if (fs.existsSync(OVERLAY_IMG_PATH)) { log('Overlay: cached in ' + DATA_DIR); overlayReady = true; return; }
   // Try .b64 files in /app/overlays/
   const overlayDir = path.join('/app', 'overlays');
   if (fs.existsSync(overlayDir)) {
@@ -347,12 +374,12 @@ app.get('/api/stream/status',auth,(req,res)=>{
 });
 
 app.get('/api/logs',auth,(req,res)=>{res.json({logs:streamLogs.slice(-100)});});
-app.post('/api/cache/clear',auth,(req,res)=>{const files=fs.readdirSync(VIDEOS_DIR);let rm=0;files.forEach(f=>{if(f==='overlay_branded.img'||f==='video_history.json')return;fs.unlinkSync(path.join(VIDEOS_DIR,f));rm++;});res.json({success:true,removed:rm});});
+app.post('/api/cache/clear',auth,(req,res)=>{const files=fs.readdirSync(VIDEOS_DIR);let rm=0;files.forEach(f=>{if(f==='video_history.json')return;fs.unlinkSync(path.join(VIDEOS_DIR,f));rm++;});res.json({success:true,removed:rm});});
 app.post('/api/subtitles',auth,(req,res)=>{const{srt}=req.body;if(!srt||!srt.trim()){if(fs.existsSync(SUBTITLE_PATH))fs.unlinkSync(SUBTITLE_PATH);return res.json({success:true,message:'Removed.'});}fs.writeFileSync(SUBTITLE_PATH,srt.trim());res.json({success:true,message:'Saved.'});});
-app.get('/health',(req,res)=>{res.json({status:'ok',streaming:!!currentStream,processing:isProcessing,overlay:OVERLAY_NAME||'off'});});
+app.get('/health',(req,res)=>{res.json({status:'ok',streaming:!!currentStream,processing:isProcessing,overlay:OVERLAY_NAME||'off',dataDir:DATA_DIR});});
 
 (()=>{
   loadVideoHistory();
   setupOverlay();
-  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT);if(OVERLAY_NAME)log('Overlay: '+OVERLAY_NAME+' | Ready: '+(overlayReady?'yes (chromakey)':'NO')+' | URL: '+(OVERLAY_URL?'set':'none'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length);});
+  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT+' | data: '+DATA_DIR);if(OVERLAY_NAME)log('Overlay: '+OVERLAY_NAME+' | Ready: '+(overlayReady?'yes (chromakey)':'NO')+' | URL: '+(OVERLAY_URL?'set':'none'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length+' videos');});
 })();
