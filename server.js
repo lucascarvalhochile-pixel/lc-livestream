@@ -19,7 +19,7 @@ const DEFAULT_ACCOUNT = process.env.DEFAULT_ACCOUNT || '';
 const OVERLAY_NAME = process.env.OVERLAY_NAME || '';
 const OVERLAY_DESTINATIONS = process.env.OVERLAY_DESTINATIONS || '';
 const OVERLAY_CTA = process.env.OVERLAY_CTA || '';
-const OVERLAY_PNG_PATH = path.join(VIDEOS_DIR, 'overlay_branded.png');
+const OVERLAY_IMG_PATH = path.join(VIDEOS_DIR, 'overlay_branded.img');
 const SUBTITLE_PATH = path.join(VIDEOS_DIR, 'current_subtitles.srt');
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 const VIDEO_HISTORY_PATH = path.join(VIDEOS_DIR, 'video_history.json');
@@ -62,11 +62,10 @@ function addToVideoHistory(url, videoPath) {
 function log(msg) { const entry = '[' + new Date().toISOString() + '] ' + msg; streamLogs.push(entry); if (streamLogs.length > 500) streamLogs.shift(); console.log(entry); }
 function auth(req, res, next) { const key = req.headers['x-admin-key'] || req.query.key; if (key !== ADMIN_KEY) return res.status(401).json({ error: 'Unauthorized' }); next(); }
 
-// Setup overlay: decode base64 PNG from overlays/ folder
+// Setup overlay: decode base64 JPEG (chromakey green) from overlays/ folder
 function setupOverlay() {
   if (!OVERLAY_NAME) { overlayReady = false; return; }
-  if (fs.existsSync(OVERLAY_PNG_PATH)) { log('Overlay PNG: cached'); overlayReady = true; return; }
-  // Look for .b64 files in /app/overlays/
+  if (fs.existsSync(OVERLAY_IMG_PATH)) { log('Overlay: cached'); overlayReady = true; return; }
   const overlayDir = path.join('/app', 'overlays');
   if (fs.existsSync(overlayDir)) {
     const files = fs.readdirSync(overlayDir).filter(f => f.endsWith('.b64'));
@@ -74,13 +73,14 @@ function setupOverlay() {
       try {
         const b64 = fs.readFileSync(path.join(overlayDir, files[0]), 'utf8').trim();
         const buf = Buffer.from(b64, 'base64');
-        fs.writeFileSync(OVERLAY_PNG_PATH, buf);
-        log('Overlay PNG decoded: ' + Math.round(buf.length / 1024) + 'KB from ' + files[0]);
+        if (buf.length < 10000) { log('Overlay file too small (' + buf.length + 'B), broken upload?'); overlayReady = false; return; }
+        fs.writeFileSync(OVERLAY_IMG_PATH, buf);
+        log('Overlay decoded: ' + Math.round(buf.length / 1024) + 'KB from ' + files[0] + ' (chromakey JPEG)');
         overlayReady = true; return;
       } catch(e) { log('Overlay decode error: ' + e.message); }
     }
   }
-  log('No overlay PNG found'); overlayReady = false;
+  log('No overlay found'); overlayReady = false;
 }
 
 function extractDriveFileId(url) { let m = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/); if (m) return m[1]; m = url.match(/[?&]id=([a-zA-Z0-9_-]+)/); if (m) return m[1]; return null; }
@@ -142,18 +142,20 @@ function transcribeVideo(videoPath) {
   });
 }
 
-// Build FFmpeg filter for horizontal video with PNG overlay
+// Build FFmpeg filter for horizontal video with JPEG chromakey overlay (real-time)
 function buildOverlayFilter(useOverlay) {
+  // Base: blur background + centered video for horizontal content
   let filter = '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2';
   const inputs = [];
   let idx = 1;
-  // PNG overlay
-  if (useOverlay && overlayReady && fs.existsSync(OVERLAY_PNG_PATH)) {
-    inputs.push('-i', OVERLAY_PNG_PATH);
-    filter += '[base];[' + idx + ':v]scale=1080:1920[ovl];[base][ovl]overlay=0:0:format=auto';
+  // JPEG chromakey overlay: remove green bg, composite over video
+  if (useOverlay && overlayReady && fs.existsSync(OVERLAY_IMG_PATH)) {
+    inputs.push('-i', OVERLAY_IMG_PATH);
+    // Scale overlay to 1080x1920, apply colorkey to remove chromakey green, then overlay
+    filter += '[base];[' + idx + ':v]scale=1080:1920,colorkey=0x00FF00:0.3:0.15[ovl];[base][ovl]overlay=0:0:format=auto';
     idx++;
   }
-  // Dynamic top title (drawtext, stays dynamic)
+  // Dynamic top title
   if (currentTopTitle) {
     const esc = (t) => t.replace(/'/g, "'\\\\\\'''").replace(/:/g, '\\:');
     const fontBold = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
@@ -261,7 +263,7 @@ app.post('/api/stream/start',auth,(req,res)=>{
       let ffmpeg,cf=null;
       if(videoPaths.length===1) ffmpeg=startSingleFFmpeg(videoPaths[0],rtmpUrl,!!loop,!!useOverlay);
       else{cf=writeConcatFile(videoPaths);ffmpeg=startFFmpegConcat(cf,rtmpUrl,!!loop);}
-      log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'PNG':'off'));
+      log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'chromakey':'off'));
       currentStream={id:uuidv4().slice(0,8),process:ffmpeg,startedAt:new Date().toISOString(),videoUrls:urls,videoPaths,loop:!!loop,useOverlay:!!useOverlay,rtmpUrl,concatFile:cf};
       attachFFmpegHandlers(ffmpeg);
       await new Promise(r=>setTimeout(r,3000));
@@ -313,12 +315,12 @@ app.get('/api/stream/status',auth,(req,res)=>{
 });
 
 app.get('/api/logs',auth,(req,res)=>{res.json({logs:streamLogs.slice(-100)});});
-app.post('/api/cache/clear',auth,(req,res)=>{const files=fs.readdirSync(VIDEOS_DIR);let rm=0;files.forEach(f=>{if(f==='overlay_branded.png'||f==='video_history.json')return;fs.unlinkSync(path.join(VIDEOS_DIR,f));rm++;});res.json({success:true,removed:rm});});
+app.post('/api/cache/clear',auth,(req,res)=>{const files=fs.readdirSync(VIDEOS_DIR);let rm=0;files.forEach(f=>{if(f==='overlay_branded.img'||f==='video_history.json')return;fs.unlinkSync(path.join(VIDEOS_DIR,f));rm++;});res.json({success:true,removed:rm});});
 app.post('/api/subtitles',auth,(req,res)=>{const{srt}=req.body;if(!srt||!srt.trim()){if(fs.existsSync(SUBTITLE_PATH))fs.unlinkSync(SUBTITLE_PATH);return res.json({success:true,message:'Removed.'});}fs.writeFileSync(SUBTITLE_PATH,srt.trim());res.json({success:true,message:'Saved.'});});
 app.get('/health',(req,res)=>{res.json({status:'ok',streaming:!!currentStream,processing:isProcessing,overlay:OVERLAY_NAME||'off'});});
 
 (()=>{
   loadVideoHistory();
   setupOverlay();
-  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT);if(OVERLAY_NAME)log('Overlay: '+OVERLAY_NAME+' | PNG: '+(overlayReady?'ready':'missing'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length);});
+  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT);if(OVERLAY_NAME)log('Overlay: '+OVERLAY_NAME+' | Ready: '+(overlayReady?'yes (chromakey)':'NO'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length);});
 })();
