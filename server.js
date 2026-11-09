@@ -25,6 +25,7 @@ const OVERLAY_CTA = process.env.OVERLAY_CTA || 'Clique no link abaixo e fale no 
 const OVERLAY_LOGO_PATH = path.join(VIDEOS_DIR, 'overlay_logo.png');
 const SUBTITLE_PATH = path.join(VIDEOS_DIR, 'current_subtitles.srt');
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
+const VIDEO_HISTORY_PATH = path.join(VIDEOS_DIR, 'video_history.json');
 let currentTopTitle = '';
 
 if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
@@ -32,6 +33,7 @@ if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
 let currentStream = null;
 let streamLogs = [];
 let overlayReady = false;
+let videoHistory = [];
 
 // Progress tracking
 let streamProgress = { active: false, stage: '', video: 0, total: 0, percent: 0, message: '' };
@@ -42,6 +44,60 @@ function setProgress(stage, message, video, total, percent) {
 
 function resetProgress() {
   streamProgress = { active: false, stage: '', video: 0, total: 0, percent: 0, message: '' };
+}
+
+// Video history
+function loadVideoHistory() {
+  try {
+    if (fs.existsSync(VIDEO_HISTORY_PATH)) {
+      videoHistory = JSON.parse(fs.readFileSync(VIDEO_HISTORY_PATH, 'utf8'));
+    }
+  } catch(e) { videoHistory = []; }
+}
+
+function saveVideoHistory() {
+  try { fs.writeFileSync(VIDEO_HISTORY_PATH, JSON.stringify(videoHistory, null, 2)); } catch(e) {}
+}
+
+function addToVideoHistory(url, videoPath, extraLabel) {
+  try {
+    const existing = videoHistory.findIndex(v => v.url === url);
+    const stats = fs.statSync(videoPath);
+    const info = getVideoInfo(videoPath);
+    const sizeMB = Math.round(stats.size / 1024 / 1024);
+    const orientation = info && info.width > info.height ? 'horizontal' : 'vertical';
+    const resolution = info ? info.width + 'x' + info.height : '';
+    
+    let source = 'url';
+    let label = extraLabel || '';
+    if (isYouTubeUrl(url)) {
+      source = 'youtube';
+      if (!label) {
+        try {
+          label = execSync('yt-dlp --get-title --no-warnings "' + url + '"', { encoding: 'utf8', timeout: 15000 }).trim();
+        } catch(e) { label = 'YouTube ' + url.match(/[?&]v=([^&]+)/)?.[1] || ''; }
+      }
+    } else if (extractDriveFileId(url)) {
+      source = 'drive';
+      if (!label) label = 'Drive ' + extractDriveFileId(url).slice(0, 8) + '...';
+    }
+    if (!label) label = url.substring(0, 50);
+    // Truncate long labels
+    if (label.length > 60) label = label.substring(0, 57) + '...';
+    
+    const entry = { url, label, source, sizeMB, orientation, resolution, lastUsed: new Date().toISOString(), cached: fs.existsSync(videoPath) };
+    
+    if (existing >= 0) {
+      videoHistory[existing] = entry;
+    } else {
+      videoHistory.unshift(entry);
+    }
+    // Keep last 20
+    if (videoHistory.length > 20) videoHistory = videoHistory.slice(0, 20);
+    // Sort by most recent
+    videoHistory.sort((a, b) => new Date(b.lastUsed) - new Date(a.lastUsed));
+    saveVideoHistory();
+  } catch(e) { log('History save error: ' + e.message); }
 }
 
 function log(msg) {
@@ -96,7 +152,6 @@ function getVideoInfo(videoPath) {
   } catch (e) { return null; }
 }
 
-// Download from Google Drive using curl with cookie jar (handles large file virus scan confirmation)
 function downloadFromDrive(fileId, destPath) {
   return new Promise((resolve, reject) => {
     log('Downloading from Drive: ' + fileId);
@@ -129,7 +184,7 @@ function downloadFromDrive(fileId, destPath) {
               const stats3 = fs.statSync(destPath);
               if (stats3.size < 5000000) {
                 fs.unlinkSync(destPath);
-                reject(new Error('Drive download failed. File may not be publicly shared. Go to Drive > Share > Anyone with the link.'));
+                reject(new Error('Drive download failed. File may not be publicly shared.'));
                 return;
               }
             }
@@ -138,7 +193,6 @@ function downloadFromDrive(fileId, destPath) {
       }
       
       try { fs.unlinkSync(cookieJar); } catch(e) {}
-      
       const finalStats = fs.statSync(destPath);
       log('Download complete: ' + Math.round(finalStats.size / 1024 / 1024) + 'MB');
       
@@ -147,12 +201,11 @@ function downloadFromDrive(fileId, destPath) {
           const c = fs.readFileSync(destPath, 'utf8');
           if (c.includes('</html>') || c.includes('Sign in')) {
             fs.unlinkSync(destPath);
-            reject(new Error('Drive blocked download. Make sure file sharing is set to "Anyone with the link".'));
+            reject(new Error('Drive blocked download. Make sure sharing is "Anyone with the link".'));
             return;
           }
         } catch(e) {}
       }
-      
       resolve(destPath);
     } catch (e) {
       try { fs.unlinkSync(cookieJar); } catch(ex) {}
@@ -196,12 +249,12 @@ function transcribeVideo(videoPath) {
       const stats = fs.statSync(audioPath);
       log('Audio extracted: ' + Math.round(stats.size/1024/1024) + 'MB');
       if (stats.size > 25 * 1024 * 1024) { execSync('ffmpeg -i "' + audioPath + '" -t 1500 -y "' + audioPath + '.tmp.mp3"', { timeout: 60000 }); fs.renameSync(audioPath + '.tmp.mp3', audioPath); }
-      setProgress('transcribing', 'Enviando para Whisper (transcrição)...', streamProgress.video, streamProgress.total, 40);
+      setProgress('transcribing', 'Enviando para Whisper...', streamProgress.video, streamProgress.total, 40);
       log('Sending to Groq Whisper...');
       const curlResult = execSync('curl -s -X POST "https://api.groq.com/openai/v1/audio/transcriptions" -H "Authorization: Bearer ' + GROQ_API_KEY + '" -F "file=@' + audioPath + '" -F "model=whisper-large-v3" -F "response_format=srt" -F "language=pt"', { encoding: 'utf8', timeout: 300000, maxBuffer: 50 * 1024 * 1024 });
       if (curlResult && curlResult.includes('-->')) {
         fs.writeFileSync(SUBTITLE_PATH, curlResult.trim());
-        setProgress('transcribing', 'Legendas geradas com sucesso!', streamProgress.video, streamProgress.total, 100);
+        setProgress('transcribing', 'Legendas geradas!', streamProgress.video, streamProgress.total, 100);
         log('Transcription complete: ' + curlResult.trim().split('\n').length + ' lines SRT');
         resolve(true);
       } else { log('Transcription failed: ' + curlResult.substring(0, 200)); resolve(false); }
@@ -246,25 +299,12 @@ function normalizeVideo(inputPath, useOverlay) {
     if (overlay) { filter += ',' + overlay.filters.join(','); if (overlay.hasLogo) { inputs.push('-i', OVERLAY_LOGO_PATH); filter += '[prelogo];[1:v]scale=200:-1[logo];[prelogo][logo]overlay=W-w-40:H*0.177:format=auto'; } }
     filter += ',fps=30';
     const ff = spawn('ffmpeg', [...inputs, '-filter_complex', filter, '-c:v', 'libx264', '-preset', 'fast', '-b:v', '4500k', '-maxrate', '6000k', '-bufsize', '12000k', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2', '-y', outputPath]);
-    
-    // Parse ffmpeg progress for percentage
     let duration = 0;
-    try {
-      const probeResult = execSync('ffprobe -v quiet -show_entries format=duration -of csv=p=0 "' + inputPath + '"', { encoding: 'utf8' });
-      duration = parseFloat(probeResult.trim()) || 0;
-    } catch(e) {}
-    
+    try { const pr = execSync('ffprobe -v quiet -show_entries format=duration -of csv=p=0 "' + inputPath + '"', { encoding: 'utf8' }); duration = parseFloat(pr.trim()) || 0; } catch(e) {}
     ff.stderr.on('data', (d) => {
       const l = d.toString().trim();
       if (l.includes('frame=')) {
-        if (duration > 0) {
-          const timeMatch = l.match(/time=(\d+):(\d+):(\d+\.\d+)/);
-          if (timeMatch) {
-            const secs = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
-            const pct = Math.min(99, Math.round((secs / duration) * 100));
-            setProgress('normalizing', 'Processando video ' + streamProgress.video + '/' + streamProgress.total + ': ' + pct + '%', streamProgress.video, streamProgress.total, pct);
-          }
-        }
+        if (duration > 0) { const tm = l.match(/time=(\d+):(\d+):(\d+\.\d+)/); if (tm) { const s = parseInt(tm[1])*3600+parseInt(tm[2])*60+parseFloat(tm[3]); const p = Math.min(99,Math.round((s/duration)*100)); setProgress('normalizing','Processando video '+streamProgress.video+'/'+streamProgress.total+': '+p+'%',streamProgress.video,streamProgress.total,p); } }
         if (Math.random() < 0.05) log('[normalize] '+l.substring(0,150));
       }
       if (l.includes('Error')||l.includes('error')) log('[normalize] '+l.substring(0,200));
@@ -308,6 +348,8 @@ async function resolveVideo(videoUrl) {
       await downloadFromDrive(url, videoPath);
     } else return null;
   }
+  // Save to history
+  addToVideoHistory(url, videoPath);
   return videoPath;
 }
 
@@ -357,6 +399,7 @@ function attachFFmpegHandlers(ffmpeg) {
 app.get('/api/defaults', auth, (req, res) => { res.json({ streamUrl: DEFAULT_STREAM_URL, streamKey: DEFAULT_STREAM_KEY, account: DEFAULT_ACCOUNT }); });
 app.get('/api/overlay', auth, (req, res) => { res.json({ name: OVERLAY_NAME, destinations: OVERLAY_DESTINATIONS, cta: OVERLAY_CTA, logoReady: fs.existsSync(OVERLAY_LOGO_PATH), active: !!OVERLAY_NAME && overlayReady, whisperReady: !!GROQ_API_KEY }); });
 app.get('/api/progress', auth, (req, res) => { res.json(streamProgress); });
+app.get('/api/video-history', auth, (req, res) => { res.json(videoHistory); });
 
 app.post('/api/stream/start', auth, async (req, res) => {
   if (currentStream) return res.status(400).json({ error: 'Stream already running. Stop it first.' });
@@ -386,10 +429,7 @@ app.post('/api/stream/start', auth, async (req, res) => {
       setProgress('live', 'Ao vivo!', urls.length, urls.length, 100);
       setTimeout(resetProgress, 5000);
       res.json({ success: true, streamId, videos: urls.length, overlay: (useOverlay && OVERLAY_NAME) ? OVERLAY_NAME : 'off', message: 'Stream started!' });
-    } else {
-      resetProgress();
-      res.status(500).json({ error: 'Stream failed. Check logs.' });
-    }
+    } else { resetProgress(); res.status(500).json({ error: 'Stream failed. Check logs.' }); }
   } catch (err) { log('Error: ' + err.message); resetProgress(); currentStream = null; res.status(500).json({ error: err.message }); }
 });
 
@@ -414,8 +454,7 @@ app.post('/api/stream/swap-now', auth, async (req, res) => {
   try {
     setProgress('downloading', 'Preparando swap imediato...', 0, urls.length, 0);
     const np = await resolveAllVideos(urls, true, currentStream.useOverlay, false);
-    await doImmediateSwap(urls, np);
-    resetProgress();
+    await doImmediateSwap(urls, np); resetProgress();
     res.json({ success: true, message: 'Video swapped!' });
   } catch (err) { resetProgress(); res.status(500).json({ error: err.message }); }
 });
@@ -437,8 +476,7 @@ app.post('/api/stream/stop', auth, (req, res) => {
   if (!currentStream) return res.json({ message: 'No stream running.' });
   currentStream.process.kill('SIGTERM');
   setTimeout(() => { if (currentStream) { currentStream.process.kill('SIGKILL'); currentStream = null; } }, 5000);
-  resetProgress();
-  res.json({ success: true, message: 'Stream stopped.' });
+  resetProgress(); res.json({ success: true, message: 'Stream stopped.' });
 });
 
 app.get('/api/stream/status', auth, (req, res) => {
@@ -450,7 +488,7 @@ app.get('/api/logs', auth, (req, res) => { res.json({ logs: streamLogs.slice(-10
 
 app.post('/api/cache/clear', auth, (req, res) => {
   const files = fs.readdirSync(VIDEOS_DIR); let removed = 0;
-  files.forEach(f => { if (f === 'overlay_logo.png') return; fs.unlinkSync(path.join(VIDEOS_DIR, f)); removed++; });
+  files.forEach(f => { if (f === 'overlay_logo.png' || f === 'video_history.json') return; fs.unlinkSync(path.join(VIDEOS_DIR, f)); removed++; });
   res.json({ success: true, removed });
 });
 
@@ -464,6 +502,7 @@ app.post('/api/subtitles', auth, (req, res) => {
 app.get('/health', (req, res) => { res.json({ status: 'ok', streaming: !!currentStream, overlay: OVERLAY_NAME || 'off' }); });
 
 (async () => {
+  loadVideoHistory();
   if (OVERLAY_NAME) { overlayReady = await downloadOverlayLogo(); log('Overlay: "' + OVERLAY_NAME + '" | Logo: ' + (overlayReady ? 'ready' : 'text-only')); } else { overlayReady = false; }
-  app.listen(PORT, () => { log('LC LiveStream on port ' + PORT); if (OVERLAY_NAME) log('Overlay: ' + OVERLAY_NAME); if (GROQ_API_KEY) log('Whisper: ready'); });
+  app.listen(PORT, () => { log('LC LiveStream on port ' + PORT); if (OVERLAY_NAME) log('Overlay: ' + OVERLAY_NAME); if (GROQ_API_KEY) log('Whisper: ready'); log('Video history: ' + videoHistory.length + ' entries'); });
 })();

@@ -60,13 +60,28 @@
     .progress-msg { font-size: 12px; color: #999; margin-bottom: 8px; min-height: 16px; }
     .progress-track { width: 100%; height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
     .progress-fill { height: 100%; background: #0095f6; border-radius: 3px; transition: width 0.4s ease; width: 0%; }
-    .progress-fill.indeterminate { width: 30%; animation: indeterminate 1.5s infinite ease-in-out; }
-    @keyframes indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
     .progress-steps { display: flex; gap: 6px; margin-top: 10px; }
     .progress-step { flex: 1; height: 3px; border-radius: 2px; background: #222; transition: background 0.3s; }
     .progress-step.done { background: #2ecc71; }
     .progress-step.current { background: #0095f6; animation: step-pulse 1s infinite; }
     @keyframes step-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    /* Video history */
+    .history-section { margin-bottom: 14px; }
+    .history-title { font-size: 12px; color: #666; margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .history-grid { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; -webkit-overflow-scrolling: touch; }
+    .history-grid::-webkit-scrollbar { height: 4px; }
+    .history-grid::-webkit-scrollbar-track { background: transparent; }
+    .history-grid::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+    .history-card { flex-shrink: 0; width: 140px; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 10px; cursor: pointer; transition: all 0.2s; }
+    .history-card:hover { border-color: #0095f6; background: #1e1e2a; }
+    .history-card .hc-icon { font-size: 18px; margin-bottom: 4px; }
+    .history-card .hc-label { font-size: 11px; color: #ccc; line-height: 1.3; max-height: 30px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin-bottom: 4px; }
+    .history-card .hc-meta { font-size: 10px; color: #555; display: flex; gap: 6px; align-items: center; }
+    .history-card .hc-badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
+    .hc-badge.yt { background: rgba(255,0,0,0.15); color: #f44; }
+    .hc-badge.drive { background: rgba(66,133,244,0.15); color: #4285f4; }
+    .hc-badge.horiz { background: rgba(46,204,113,0.1); color: #2ecc71; }
+    .hc-badge.vert { background: rgba(155,89,182,0.1); color: #9b59b6; }
   </style>
 </head>
 <body>
@@ -107,6 +122,13 @@
 
     <div id="startPanel" class="card">
       <h2>Nova Live</h2>
+
+      <!-- Video history -->
+      <div id="historySection" class="history-section" style="display:none">
+        <div class="history-title">Videos recentes</div>
+        <div class="history-grid" id="historyGrid"></div>
+      </div>
+
       <label>Videos (Google Drive ou YouTube)</label>
       <div class="source-hint">Cole URLs do Google Drive ou YouTube. Multiplos videos tocam em sequencia.</div>
       <div id="videoList">
@@ -193,7 +215,7 @@
       fetch('/api/stream/status?key='+KEY).then(r=>{if(r.status===401){alert('Senha incorreta');return;}
         document.getElementById('login').style.display='none';
         document.getElementById('dashboard').style.display='block';
-        loadDefaults(); loadOverlayInfo(); startPolling(); fetchLogs();
+        loadDefaults(); loadOverlayInfo(); loadVideoHistory(); startPolling(); fetchLogs();
       }).catch(()=>alert('Erro de conexao'));
     }
     function apiHeaders(){return{'Content-Type':'application/json','X-Admin-Key':KEY};}
@@ -218,6 +240,58 @@
         }
       }catch(e){}
     }
+
+    async function loadVideoHistory(){
+      try{
+        const r=await fetch('/api/video-history?key='+KEY);
+        const list=await r.json();
+        if(!list||list.length===0){document.getElementById('historySection').style.display='none';return;}
+        document.getElementById('historySection').style.display='block';
+        const grid=document.getElementById('historyGrid');
+        grid.innerHTML=list.map(v => {
+          const icon = v.source==='youtube' ? '▶' : '☁';
+          const srcBadge = v.source==='youtube' ? '<span class="hc-badge yt">YT</span>' : '<span class="hc-badge drive">Drive</span>';
+          const oriBadge = v.orientation==='horizontal' ? '<span class="hc-badge horiz">H</span>' : '<span class="hc-badge vert">V</span>';
+          const ago = timeAgo(v.lastUsed);
+          return '<div class="history-card" onclick="useHistoryVideo(\''+encodeURIComponent(v.url)+'\')">'
+            + '<div class="hc-icon">'+icon+'</div>'
+            + '<div class="hc-label">'+escHtml(v.label)+'</div>'
+            + '<div class="hc-meta">'+srcBadge+oriBadge+'<span>'+v.sizeMB+'MB</span></div>'
+            + '<div class="hc-meta" style="margin-top:2px"><span>'+ago+'</span></div>'
+            + '</div>';
+        }).join('');
+      }catch(e){}
+    }
+
+    function useHistoryVideo(encodedUrl){
+      const url = decodeURIComponent(encodedUrl);
+      // Find first empty input or add new
+      const inputs = document.querySelectorAll('#videoList input');
+      let filled = false;
+      for (const inp of inputs) {
+        if (!inp.value.trim()) { inp.value = url; inp.classList.add('prefilled'); filled = true; break; }
+      }
+      if (!filled) {
+        addVideoField();
+        const newInputs = document.querySelectorAll('#videoList input');
+        const last = newInputs[newInputs.length - 1];
+        last.value = url;
+        last.classList.add('prefilled');
+      }
+    }
+
+    function timeAgo(iso){
+      const diff = Date.now() - new Date(iso).getTime();
+      const mins = Math.floor(diff/60000);
+      if(mins < 1) return 'agora';
+      if(mins < 60) return mins+'min';
+      const hrs = Math.floor(mins/60);
+      if(hrs < 24) return hrs+'h';
+      const days = Math.floor(hrs/24);
+      return days+'d';
+    }
+
+    function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
     async function uploadSubtitles(){
       const srt=document.getElementById('subtitleSrt').value;
@@ -250,18 +324,10 @@
     }
 
     function updateProgressUI(p) {
-      const stage = document.getElementById('progressStage');
-      const pct = document.getElementById('progressPct');
-      const msg = document.getElementById('progressMsg');
-      const fill = document.getElementById('progressFill');
-
-      stage.textContent = STAGE_LABELS[p.stage] || p.stage || 'Preparando...';
-      pct.textContent = p.percent + '%';
-      msg.textContent = p.message || '';
-      fill.style.width = p.percent + '%';
-      fill.classList.remove('indeterminate');
-
-      // Update step indicators
+      document.getElementById('progressStage').textContent = STAGE_LABELS[p.stage] || p.stage || 'Preparando...';
+      document.getElementById('progressPct').textContent = p.percent + '%';
+      document.getElementById('progressMsg').textContent = p.message || '';
+      document.getElementById('progressFill').style.width = p.percent + '%';
       const currentIdx = STAGE_ORDER.indexOf(p.stage);
       document.querySelectorAll('.progress-step').forEach((el, i) => {
         el.classList.remove('done', 'current');
@@ -269,11 +335,7 @@
           if (i < currentIdx) el.classList.add('done');
           else if (i === currentIdx) el.classList.add('current');
         }
-        // transcribing is between downloading and normalizing
-        if (p.stage === 'transcribing') {
-          if (i === 0) el.classList.add('done');
-          if (i === 1) el.classList.add('current');
-        }
+        if (p.stage === 'transcribing') { if (i === 0) el.classList.add('done'); if (i === 1) el.classList.add('current'); }
         if (p.stage === 'live') el.classList.add('done');
       });
     }
@@ -317,6 +379,8 @@
         const r=await fetch('/api/stream/start',{method:'POST',headers:apiHeaders(),body:JSON.stringify({streamUrl,streamKey,videoUrls,loop,useOverlay,topTitle})});
         const d=await r.json();
         if(d.error){alert('Erro: '+d.error);btn.disabled=false;btn.textContent='Iniciar Live';stopProgressPolling();return;}
+        // Refresh history after stream starts (new videos may have been added)
+        setTimeout(loadVideoHistory, 2000);
         fetchLogs();
       }catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent='Iniciar Live';stopProgressPolling();}
     }
@@ -335,6 +399,7 @@
         else{alert(d.message);}
         btn.disabled=false;btn.textContent=immediate?'Trocar agora (pausa de ~3s)':'Trocar (quando o atual terminar)';
         stopProgressPolling();
+        setTimeout(loadVideoHistory, 2000);
         fetchLogs();
       }catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent=immediate?'Trocar agora (pausa de ~3s)':'Trocar (quando o atual terminar)';stopProgressPolling();}
     }
