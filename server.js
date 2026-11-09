@@ -27,10 +27,14 @@ let currentTopTitle = '';
 // Measured from overlay_caribe (941x1672 scaled to 1080x1920):
 // Top: header+wave content ends at scaled y=490 (original y=427)
 // Bottom: footer+wave content starts at scaled y=1174 (original y=1022)
-// Gradient/gray zones excluded
 let overlayTopH = 491, overlayBotY = 1174;
 
 if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
+
+// Always clear band cache on startup so dimensions from code are used
+try { fs.unlinkSync(OVERLAY_TOP_PATH); } catch(e) {}
+try { fs.unlinkSync(OVERLAY_BOT_PATH); } catch(e) {}
+try { fs.unlinkSync(OVERLAY_SCALED_PATH); } catch(e) {}
 
 let savedDefaults = { streamUrl: '', streamKey: '', account: '', overlayUrl: '' };
 function loadStreamDefaults() {
@@ -113,12 +117,11 @@ function downloadOverlayFromUrl(url) {
   } catch(e) { log('Overlay download error: ' + e.message); try { fs.unlinkSync(cj); } catch(ex) {} return false; }
 }
 
-// Scale overlay to exactly 1080x1920 if needed, then split into top and bottom bands
 function splitOverlayBands() {
   if (fs.existsSync(OVERLAY_TOP_PATH) && fs.existsSync(OVERLAY_BOT_PATH)) { log('Overlay bands: cached'); return true; }
   if (!fs.existsSync(OVERLAY_RAW_PATH)) return false;
   try {
-    log('Splitting overlay into top+bottom bands...');
+    log('Splitting overlay into bands (topH=' + overlayTopH + ', botY=' + overlayBotY + ')...');
     const info = getVideoInfo(OVERLAY_RAW_PATH);
     const origW = info ? info.width : 0;
     const origH = info ? info.height : 0;
@@ -131,15 +134,13 @@ function splitOverlayBands() {
       log('Overlay scaled to 1080x1920');
     }
 
-    // Crop top band: solid header content (0 to overlayTopH-1)
     execSync('ffmpeg -i "' + srcPath + '" -vf "crop=1080:' + overlayTopH + ':0:0" -update 1 -y "' + OVERLAY_TOP_PATH + '"', { timeout: 15000 });
-    // Crop bottom band: solid footer content (overlayBotY to 1919)
     const botH = 1920 - overlayBotY;
     execSync('ffmpeg -i "' + srcPath + '" -vf "crop=1080:' + botH + ':0:' + overlayBotY + '" -update 1 -y "' + OVERLAY_BOT_PATH + '"', { timeout: 15000 });
 
     const ts = fs.statSync(OVERLAY_TOP_PATH).size;
     const bs = fs.statSync(OVERLAY_BOT_PATH).size;
-    log('Overlay bands: top ' + Math.round(ts/1024) + 'KB (h=' + overlayTopH + '), bottom ' + Math.round(bs/1024) + 'KB (h=' + botH + ' from y=' + overlayBotY + ')');
+    log('Overlay bands ready: top ' + Math.round(ts/1024) + 'KB (h=' + overlayTopH + '), bottom ' + Math.round(bs/1024) + 'KB (h=' + botH + ' from y=' + overlayBotY + ')');
     try { fs.unlinkSync(OVERLAY_SCALED_PATH); } catch(e) {}
     return ts > 1000 && bs > 1000;
   } catch(e) { log('Overlay split error: ' + e.message); return false; }
@@ -203,7 +204,6 @@ function transcribeVideo(videoPath) {
   });
 }
 
-// Two-band overlay: paste top and bottom solid images over the video
 function buildOverlayFilter(useOverlay) {
   let filter = '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2';
   const inputs = []; let idx = 1;
@@ -214,7 +214,6 @@ function buildOverlayFilter(useOverlay) {
   }
   if (currentTopTitle) {
     const esc = (t) => t.replace(/'/g, "'\\\\\\'''").replace(/:/g, '\\:');
-    // Title bar positioned just above the video gap (inside top band)
     const titleY = Math.max(0, overlayTopH - 45);
     filter += ',drawbox=x=0:y=' + titleY + ':w=iw:h=40:color=black@0.5:t=fill';
     filter += ",drawtext=text='" + esc(currentTopTitle) + "':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=20:fontcolor=white:x=(w-text_w)/2:y=" + (titleY + 10);
@@ -318,7 +317,7 @@ app.post('/api/stream/start',auth,(req,res)=>{
       let ffmpeg,cf=null;
       if(videoPaths.length===1) ffmpeg=startSingleFFmpeg(videoPaths[0],rtmpUrl,!!loop,!!useOverlay);
       else{cf=writeConcatFile(videoPaths);ffmpeg=startFFmpegConcat(cf,rtmpUrl,!!loop);}
-      log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'on (bands '+overlayTopH+'/'+overlayBotY+')':'off'));
+      log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'on ('+overlayTopH+'/'+overlayBotY+')':'off'));
       currentStream={id:uuidv4().slice(0,8),process:ffmpeg,startedAt:new Date().toISOString(),videoUrls:urls,videoPaths,loop:!!loop,useOverlay:!!useOverlay,rtmpUrl,concatFile:cf};
       attachFFmpegHandlers(ffmpeg);
       await new Promise(r=>setTimeout(r,3000));
