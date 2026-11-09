@@ -15,7 +15,8 @@ const ADMIN_KEY = process.env.ADMIN_KEY || 'lc-live-2026';
 const VIDEOS_DIR = '/tmp/videos';
 const DATA_DIR = fs.existsSync('/data') ? '/data' : VIDEOS_DIR;
 const OVERLAY_NAME = process.env.OVERLAY_NAME || '';
-const OVERLAY_IMG_PATH = path.join(DATA_DIR, 'overlay_branded.img');
+const OVERLAY_RAW_PATH = path.join(DATA_DIR, 'overlay_raw.img');
+const OVERLAY_PNG_PATH = path.join(DATA_DIR, 'overlay_alpha.png');
 const SUBTITLE_PATH = path.join(VIDEOS_DIR, 'current_subtitles.srt');
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 const VIDEO_HISTORY_PATH = path.join(DATA_DIR, 'video_history.json');
@@ -36,7 +37,7 @@ function saveStreamDefaults(obj) {
   if (obj.overlayUrl !== undefined) {
     const oldUrl = savedDefaults.overlayUrl;
     savedDefaults.overlayUrl = obj.overlayUrl;
-    if (obj.overlayUrl !== oldUrl) { try { fs.unlinkSync(OVERLAY_IMG_PATH); } catch(e) {} overlayReady = false; log('Overlay URL changed, cache cleared'); }
+    if (obj.overlayUrl !== oldUrl) { try { fs.unlinkSync(OVERLAY_RAW_PATH); } catch(e) {} try { fs.unlinkSync(OVERLAY_PNG_PATH); } catch(e) {} overlayReady = false; log('Overlay URL changed, cache cleared'); }
   }
   try { fs.writeFileSync(STREAM_DEFAULTS_PATH, JSON.stringify(savedDefaults, null, 2)); } catch(e) { log('Failed to save defaults: ' + e.message); }
 }
@@ -53,7 +54,6 @@ function setProgress(stage, message, globalPercent) { if (globalPercent > _lastG
 function resetProgress() { streamProgress = { active: false, stage: '', globalPercent: 0, message: '' }; _lastGlobalPct = 0; }
 function loadVideoHistory() { try { if (fs.existsSync(VIDEO_HISTORY_PATH)) videoHistory = JSON.parse(fs.readFileSync(VIDEO_HISTORY_PATH, 'utf8')); } catch(e) { videoHistory = []; } }
 function saveVideoHistory() { try { fs.writeFileSync(VIDEO_HISTORY_PATH, JSON.stringify(videoHistory, null, 2)); } catch(e) {} }
-
 function getYouTubeId(url) { let m = url.match(/[?&]v=([^&]+)/); if (m) return m[1]; m = url.match(/youtu\.be\/([^?&]+)/); if (m) return m[1]; m = url.match(/\/embed\/([^?&]+)/); if (m) return m[1]; return null; }
 
 function addToVideoHistory(url, videoPath) {
@@ -94,30 +94,49 @@ function downloadOverlayFromUrl(url) {
   log('Downloading overlay from Drive: ' + fid);
   const cj = path.join(VIDEOS_DIR, 'ovl_cookies.txt');
   try {
-    execSync('curl -s -L -c "' + cj + '" -o "' + OVERLAY_IMG_PATH + '" "https://drive.usercontent.google.com/download?id=' + fid + '&export=download"', { timeout: 30000 });
-    if (fs.statSync(OVERLAY_IMG_PATH).size < 50000) {
-      try { const c = fs.readFileSync(OVERLAY_IMG_PATH, 'utf8'); if (c.includes('confirm=') || c.includes('</html>')) { const cm = c.match(/confirm=([a-zA-Z0-9_-]+)/); const ct = cm ? cm[1] : 't'; fs.unlinkSync(OVERLAY_IMG_PATH); execSync('curl -s -L -b "' + cj + '" -c "' + cj + '" -o "' + OVERLAY_IMG_PATH + '" "https://drive.usercontent.google.com/download?id=' + fid + '&export=download&confirm=' + ct + '"', { timeout: 60000 }); } } catch(e) {}
+    execSync('curl -s -L -c "' + cj + '" -o "' + OVERLAY_RAW_PATH + '" "https://drive.usercontent.google.com/download?id=' + fid + '&export=download"', { timeout: 30000 });
+    if (fs.statSync(OVERLAY_RAW_PATH).size < 50000) {
+      try { const c = fs.readFileSync(OVERLAY_RAW_PATH, 'utf8'); if (c.includes('confirm=') || c.includes('</html>')) { const cm = c.match(/confirm=([a-zA-Z0-9_-]+)/); const ct = cm ? cm[1] : 't'; fs.unlinkSync(OVERLAY_RAW_PATH); execSync('curl -s -L -b "' + cj + '" -c "' + cj + '" -o "' + OVERLAY_RAW_PATH + '" "https://drive.usercontent.google.com/download?id=' + fid + '&export=download&confirm=' + ct + '"', { timeout: 60000 }); } } catch(e) {}
     }
     try { fs.unlinkSync(cj); } catch(e) {}
-    const sz = fs.statSync(OVERLAY_IMG_PATH).size;
-    if (sz < 10000) { log('Overlay too small: ' + sz + 'B'); try { fs.unlinkSync(OVERLAY_IMG_PATH); } catch(e) {} return false; }
-    log('Overlay downloaded: ' + Math.round(sz / 1024) + 'KB'); return true;
+    const sz = fs.statSync(OVERLAY_RAW_PATH).size;
+    if (sz < 10000) { log('Overlay too small: ' + sz + 'B'); try { fs.unlinkSync(OVERLAY_RAW_PATH); } catch(e) {} return false; }
+    log('Overlay downloaded: ' + Math.round(sz / 1024) + 'KB');
+    return true;
   } catch(e) { log('Overlay download error: ' + e.message); try { fs.unlinkSync(cj); } catch(ex) {} return false; }
+}
+
+// Convert chromakey JPEG to PNG with alpha (one-time, cached in /data)
+function convertOverlayToAlpha() {
+  if (fs.existsSync(OVERLAY_PNG_PATH)) { log('Overlay alpha PNG: cached'); return true; }
+  if (!fs.existsSync(OVERLAY_RAW_PATH)) return false;
+  try {
+    log('Converting overlay to alpha PNG (one-time)...');
+    execSync('ffmpeg -i "' + OVERLAY_RAW_PATH + '" -filter_complex "colorkey=0x00FF00:0.3:0.15,format=rgba" -update 1 -y "' + OVERLAY_PNG_PATH + '"', { timeout: 30000 });
+    const sz = fs.statSync(OVERLAY_PNG_PATH).size;
+    log('Overlay alpha PNG: ' + Math.round(sz / 1024) + 'KB');
+    return sz > 10000;
+  } catch(e) { log('Overlay convert error: ' + e.message); return false; }
 }
 
 function setupOverlay() {
   if (!OVERLAY_NAME) { overlayReady = false; return; }
-  if (fs.existsSync(OVERLAY_IMG_PATH)) { log('Overlay: cached'); overlayReady = true; return; }
-  // Try overlay URL from saved defaults (panel) or env var
+  // Already have the alpha PNG? Done
+  if (fs.existsSync(OVERLAY_PNG_PATH)) { log('Overlay: ready (alpha PNG cached)'); overlayReady = true; return; }
+  // Have raw image? Convert it
+  if (fs.existsSync(OVERLAY_RAW_PATH)) { overlayReady = convertOverlayToAlpha(); if (overlayReady) return; }
+  // Download from URL
   const ovlUrl = savedDefaults.overlayUrl || process.env.OVERLAY_URL || '';
-  if (ovlUrl) { overlayReady = downloadOverlayFromUrl(ovlUrl); if (overlayReady) return; }
+  if (ovlUrl) {
+    if (downloadOverlayFromUrl(ovlUrl)) { overlayReady = convertOverlayToAlpha(); if (overlayReady) return; }
+  }
   // Try .b64 from repo
   const overlayDir = path.join('/app', 'overlays');
   if (fs.existsSync(overlayDir)) {
     const files = fs.readdirSync(overlayDir).filter(f => f.endsWith('.b64'));
     if (files.length > 0) {
       try { const b64 = fs.readFileSync(path.join(overlayDir, files[0]), 'utf8').trim(); const buf = Buffer.from(b64, 'base64');
-        if (buf.length >= 10000) { fs.writeFileSync(OVERLAY_IMG_PATH, buf); log('Overlay from .b64: ' + Math.round(buf.length / 1024) + 'KB'); overlayReady = true; return; }
+        if (buf.length >= 10000) { fs.writeFileSync(OVERLAY_RAW_PATH, buf); log('Overlay from .b64: ' + Math.round(buf.length / 1024) + 'KB'); overlayReady = convertOverlayToAlpha(); if (overlayReady) return; }
       } catch(e) {}
     }
   }
@@ -173,12 +192,14 @@ function transcribeVideo(videoPath) {
   });
 }
 
+// Overlay filter: uses pre-converted alpha PNG (no colorkey at runtime = fast)
 function buildOverlayFilter(useOverlay) {
   let filter = '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2';
   const inputs = []; let idx = 1;
-  if (useOverlay && overlayReady && fs.existsSync(OVERLAY_IMG_PATH)) {
-    inputs.push('-i', OVERLAY_IMG_PATH);
-    filter += '[base];[' + idx + ':v]scale=1080:1920,colorkey=0x00FF00:0.3:0.15[ovl];[base][ovl]overlay=0:0:format=auto'; idx++;
+  if (useOverlay && overlayReady && fs.existsSync(OVERLAY_PNG_PATH)) {
+    inputs.push('-i', OVERLAY_PNG_PATH);
+    // Simple alpha overlay, no colorkey needed (already converted to RGBA PNG)
+    filter += '[base];[' + idx + ':v]scale=1080:1920[ovl];[base][ovl]overlay=0:0:format=auto'; idx++;
   }
   if (currentTopTitle) {
     const esc = (t) => t.replace(/'/g, "'\\\\\\'''").replace(/:/g, '\\:');
@@ -270,7 +291,6 @@ app.post('/api/stream/start',auth,(req,res)=>{
   let urls=[]; if(videoUrls&&Array.isArray(videoUrls)&&videoUrls.length>0) urls=videoUrls.filter(u=>u&&u.trim()); else if(videoUrl) urls=[videoUrl];
   if(urls.length===0) return res.status(400).json({error:'Video URL required.'});
   saveStreamDefaults({streamUrl, streamKey});
-  // Re-setup overlay if not ready (URL may have been set)
   if (useOverlay && !overlayReady) setupOverlay();
   isProcessing=true; currentTopTitle=(topTitle||'').trim();
   resetProgress(); setProgress('downloading','Preparando '+urls.length+' video(s)...',1);
@@ -285,7 +305,7 @@ app.post('/api/stream/start',auth,(req,res)=>{
       let ffmpeg,cf=null;
       if(videoPaths.length===1) ffmpeg=startSingleFFmpeg(videoPaths[0],rtmpUrl,!!loop,!!useOverlay);
       else{cf=writeConcatFile(videoPaths);ffmpeg=startFFmpegConcat(cf,rtmpUrl,!!loop);}
-      log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'on':'off'));
+      log('Stream starting | Overlay: '+(useOverlay&&overlayReady?'on (alpha PNG)':'off'));
       currentStream={id:uuidv4().slice(0,8),process:ffmpeg,startedAt:new Date().toISOString(),videoUrls:urls,videoPaths,loop:!!loop,useOverlay:!!useOverlay,rtmpUrl,concatFile:cf};
       attachFFmpegHandlers(ffmpeg);
       await new Promise(r=>setTimeout(r,3000));
@@ -312,5 +332,5 @@ app.get('/health',(req,res)=>{res.json({status:'ok',streaming:!!currentStream,pr
   loadVideoHistory();
   loadStreamDefaults();
   setupOverlay();
-  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT+' | data: '+DATA_DIR);log('Defaults: '+(savedDefaults.streamKey?'key: ...'+savedDefaults.streamKey.slice(-6):'none')+' | overlay: '+(savedDefaults.overlayUrl?'URL set':'none'));if(OVERLAY_NAME)log('Overlay ready: '+(overlayReady?'yes':'NO'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length);});
+  app.listen(PORT,()=>{log('LC LiveStream on port '+PORT+' | data: '+DATA_DIR);log('Defaults: '+(savedDefaults.streamKey?'key: ...'+savedDefaults.streamKey.slice(-6):'none')+' | overlay: '+(savedDefaults.overlayUrl?'URL set':'none'));log('Overlay: '+(overlayReady?'ready (alpha PNG)':'not ready'));if(GROQ_API_KEY)log('Whisper: ready');log('History: '+videoHistory.length);});
 })();
