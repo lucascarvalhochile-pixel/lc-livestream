@@ -51,6 +51,22 @@
     .swap-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid #222; }
     .swap-section h3 { font-size: 13px; color: #f39c12; margin-bottom: 10px; font-weight: 600; }
     .overlay-info { font-size: 11px; color: #0100FE; margin-bottom: 14px; padding: 8px 12px; background: rgba(1,0,254,0.08); border: 1px solid rgba(1,0,254,0.2); border-radius: 8px; }
+    /* Progress bar */
+    .progress-container { display: none; margin-bottom: 16px; padding: 16px; background: #111; border: 1px solid #222; border-radius: 10px; }
+    .progress-container.active { display: block; }
+    .progress-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .progress-stage { font-size: 13px; font-weight: 600; color: #0095f6; }
+    .progress-pct { font-size: 13px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+    .progress-msg { font-size: 12px; color: #999; margin-bottom: 8px; min-height: 16px; }
+    .progress-track { width: 100%; height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #0095f6; border-radius: 3px; transition: width 0.4s ease; width: 0%; }
+    .progress-fill.indeterminate { width: 30%; animation: indeterminate 1.5s infinite ease-in-out; }
+    @keyframes indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+    .progress-steps { display: flex; gap: 6px; margin-top: 10px; }
+    .progress-step { flex: 1; height: 3px; border-radius: 2px; background: #222; transition: background 0.3s; }
+    .progress-step.done { background: #2ecc71; }
+    .progress-step.current { background: #0095f6; animation: step-pulse 1s infinite; }
+    @keyframes step-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
   </style>
 </head>
 <body>
@@ -70,6 +86,23 @@
     <div id="statusBar" class="status-bar offline">
       <div class="dot off" id="statusDot"></div>
       <span id="statusText">Offline</span>
+    </div>
+
+    <!-- Progress bar -->
+    <div id="progressContainer" class="progress-container">
+      <div class="progress-header">
+        <span class="progress-stage" id="progressStage">Preparando...</span>
+        <span class="progress-pct" id="progressPct">0%</span>
+      </div>
+      <div class="progress-msg" id="progressMsg">Iniciando...</div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-steps" id="progressSteps">
+        <div class="progress-step" data-step="downloading" title="Download"></div>
+        <div class="progress-step" data-step="normalizing" title="Processamento"></div>
+        <div class="progress-step" data-step="starting" title="Conexao"></div>
+      </div>
     </div>
 
     <div id="startPanel" class="card">
@@ -144,6 +177,16 @@
     let KEY='';
     let pollInterval=null, uptimeInterval=null, streamStartTime=null;
     let overlayConfig=null;
+    let progressPoll=null;
+
+    const STAGE_LABELS = {
+      'downloading': 'Download',
+      'normalizing': 'Processando',
+      'transcribing': 'Legendas',
+      'starting': 'Conectando',
+      'live': 'Ao Vivo'
+    };
+    const STAGE_ORDER = ['downloading', 'normalizing', 'starting'];
 
     function doLogin() {
       KEY=document.getElementById('adminKey').value; if(!KEY) return;
@@ -183,6 +226,58 @@
       }catch(e){alert('Erro');}
     }
 
+    // Progress bar
+    function startProgressPolling() {
+      const c = document.getElementById('progressContainer');
+      c.classList.add('active');
+      updateProgressUI({ active: true, stage: 'downloading', message: 'Iniciando...', video: 0, total: 0, percent: 0 });
+      if (progressPoll) clearInterval(progressPoll);
+      progressPoll = setInterval(fetchProgress, 1200);
+    }
+
+    function stopProgressPolling() {
+      if (progressPoll) { clearInterval(progressPoll); progressPoll = null; }
+      document.getElementById('progressContainer').classList.remove('active');
+    }
+
+    async function fetchProgress() {
+      try {
+        const r = await fetch('/api/progress?key=' + KEY);
+        const p = await r.json();
+        if (!p.active) { stopProgressPolling(); return; }
+        updateProgressUI(p);
+      } catch(e) {}
+    }
+
+    function updateProgressUI(p) {
+      const stage = document.getElementById('progressStage');
+      const pct = document.getElementById('progressPct');
+      const msg = document.getElementById('progressMsg');
+      const fill = document.getElementById('progressFill');
+
+      stage.textContent = STAGE_LABELS[p.stage] || p.stage || 'Preparando...';
+      pct.textContent = p.percent + '%';
+      msg.textContent = p.message || '';
+      fill.style.width = p.percent + '%';
+      fill.classList.remove('indeterminate');
+
+      // Update step indicators
+      const currentIdx = STAGE_ORDER.indexOf(p.stage);
+      document.querySelectorAll('.progress-step').forEach((el, i) => {
+        el.classList.remove('done', 'current');
+        if (currentIdx >= 0) {
+          if (i < currentIdx) el.classList.add('done');
+          else if (i === currentIdx) el.classList.add('current');
+        }
+        // transcribing is between downloading and normalizing
+        if (p.stage === 'transcribing') {
+          if (i === 0) el.classList.add('done');
+          if (i === 1) el.classList.add('current');
+        }
+        if (p.stage === 'live') el.classList.add('done');
+      });
+    }
+
     function addVideoField(){
       const list=document.getElementById('videoList');const c=list.children.length+1;
       const row=document.createElement('div');row.className='video-row';
@@ -216,12 +311,14 @@
       const topTitle=(document.getElementById('topTitle').value||'').trim();
       if(!streamKey){alert('Chave de stream nao encontrada.');return;}
       if(videoUrls.length===0){alert('Adicione pelo menos um video');return;}
-      const btn=document.getElementById('btnStart');btn.disabled=true;btn.textContent='Baixando video(s) e iniciando...';
+      const btn=document.getElementById('btnStart');btn.disabled=true;btn.textContent='Preparando...';
+      startProgressPolling();
       try{
         const r=await fetch('/api/stream/start',{method:'POST',headers:apiHeaders(),body:JSON.stringify({streamUrl,streamKey,videoUrls,loop,useOverlay,topTitle})});
-        const d=await r.json();if(d.error){alert('Erro: '+d.error);btn.disabled=false;btn.textContent='Iniciar Live';return;}
+        const d=await r.json();
+        if(d.error){alert('Erro: '+d.error);btn.disabled=false;btn.textContent='Iniciar Live';stopProgressPolling();return;}
         fetchLogs();
-      }catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent='Iniciar Live';}
+      }catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent='Iniciar Live';stopProgressPolling();}
     }
 
     async function swapVideos(immediate){
@@ -229,6 +326,7 @@
       if(videoUrls.length===0){alert('Cole pelo menos um video novo');return;}
       const btnId=immediate?'btnSwapNow':'btnSwap';
       const btn=document.getElementById(btnId);btn.disabled=true;btn.textContent='Trocando...';
+      startProgressPolling();
       const endpoint=immediate?'/api/stream/swap-now':'/api/stream/swap';
       try{
         const r=await fetch(endpoint,{method:'POST',headers:apiHeaders(),body:JSON.stringify({videoUrls})});
@@ -236,11 +334,12 @@
         if(d.error){alert('Erro: '+d.error);}
         else{alert(d.message);}
         btn.disabled=false;btn.textContent=immediate?'Trocar agora (pausa de ~3s)':'Trocar (quando o atual terminar)';
+        stopProgressPolling();
         fetchLogs();
-      }catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent=immediate?'Trocar agora (pausa de ~3s)':'Trocar (quando o atual terminar)';}
+      }catch(e){alert('Erro de conexao');btn.disabled=false;btn.textContent=immediate?'Trocar agora (pausa de ~3s)':'Trocar (quando o atual terminar)';stopProgressPolling();}
     }
 
-    async function stopStream(){if(!confirm('Parar a live?'))return;await fetch('/api/stream/stop',{method:'POST',headers:apiHeaders()});fetchLogs();}
+    async function stopStream(){if(!confirm('Parar a live?'))return;await fetch('/api/stream/stop',{method:'POST',headers:apiHeaders()});stopProgressPolling();fetchLogs();}
     async function clearCache(){if(!confirm('Remover videos em cache?'))return;const r=await fetch('/api/cache/clear',{method:'POST',headers:apiHeaders()});const d=await r.json();alert(d.removed+' arquivo(s) removido(s)');}
 
     function updateUI(status){
@@ -252,6 +351,7 @@
         document.getElementById('liveVideoCount').textContent=status.videoUrls?status.videoUrls.length+' video(s) na playlist':'';
         document.getElementById('liveOverlayInfo').textContent=status.overlay&&status.overlay!=='off'?'Overlay: '+status.overlay:'';
         streamStartTime=new Date(status.startedAt);if(!uptimeInterval)uptimeInterval=setInterval(updateUptime,1000);
+        stopProgressPolling();
       }else{
         bar.className='status-bar offline';dot.className='dot off';text.textContent='Offline';
         sp.style.display='block';lp.style.display='none';btn.disabled=false;btn.textContent='Iniciar Live';
