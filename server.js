@@ -34,32 +34,30 @@ let currentStream = null;
 let streamLogs = [];
 let overlayReady = false;
 let videoHistory = [];
+let isProcessing = false;
 
-// Progress tracking
-let streamProgress = { active: false, stage: '', video: 0, total: 0, percent: 0, message: '' };
+let streamProgress = { active: false, stage: '', globalPercent: 0, message: '' };
+let _lastGlobalPct = 0;
 
-function setProgress(stage, message, video, total, percent) {
-  streamProgress = { active: true, stage, message, video: video || 0, total: total || 0, percent: percent || 0 };
+function setProgress(stage, message, globalPercent) {
+  if (globalPercent > _lastGlobalPct) _lastGlobalPct = globalPercent;
+  streamProgress = { active: true, stage, globalPercent: _lastGlobalPct, message };
 }
 
 function resetProgress() {
-  streamProgress = { active: false, stage: '', video: 0, total: 0, percent: 0, message: '' };
+  streamProgress = { active: false, stage: '', globalPercent: 0, message: '' };
+  _lastGlobalPct = 0;
 }
 
-// Video history
 function loadVideoHistory() {
-  try {
-    if (fs.existsSync(VIDEO_HISTORY_PATH)) {
-      videoHistory = JSON.parse(fs.readFileSync(VIDEO_HISTORY_PATH, 'utf8'));
-    }
-  } catch(e) { videoHistory = []; }
+  try { if (fs.existsSync(VIDEO_HISTORY_PATH)) { videoHistory = JSON.parse(fs.readFileSync(VIDEO_HISTORY_PATH, 'utf8')); } } catch(e) { videoHistory = []; }
 }
 
 function saveVideoHistory() {
   try { fs.writeFileSync(VIDEO_HISTORY_PATH, JSON.stringify(videoHistory, null, 2)); } catch(e) {}
 }
 
-function addToVideoHistory(url, videoPath, extraLabel) {
+function addToVideoHistory(url, videoPath) {
   try {
     const existing = videoHistory.findIndex(v => v.url === url);
     const stats = fs.statSync(videoPath);
@@ -67,34 +65,19 @@ function addToVideoHistory(url, videoPath, extraLabel) {
     const sizeMB = Math.round(stats.size / 1024 / 1024);
     const orientation = info && info.width > info.height ? 'horizontal' : 'vertical';
     const resolution = info ? info.width + 'x' + info.height : '';
-    
-    let source = 'url';
-    let label = extraLabel || '';
+    let source = 'url'; let label = '';
     if (isYouTubeUrl(url)) {
       source = 'youtube';
-      if (!label) {
-        try {
-          label = execSync('yt-dlp --get-title --no-warnings "' + url + '"', { encoding: 'utf8', timeout: 15000 }).trim();
-        } catch(e) { label = 'YouTube ' + url.match(/[?&]v=([^&]+)/)?.[1] || ''; }
-      }
+      try { label = execSync('yt-dlp --get-title --no-warnings "' + url + '"', { encoding: 'utf8', timeout: 15000 }).trim(); } catch(e) {}
+      if (!label) { const m = url.match(/[?&]v=([^&]+)/); label = 'YouTube ' + (m ? m[1] : ''); }
     } else if (extractDriveFileId(url)) {
-      source = 'drive';
-      if (!label) label = 'Drive ' + extractDriveFileId(url).slice(0, 8) + '...';
+      source = 'drive'; label = 'Drive ' + extractDriveFileId(url).slice(0, 8) + '...';
     }
     if (!label) label = url.substring(0, 50);
-    // Truncate long labels
     if (label.length > 60) label = label.substring(0, 57) + '...';
-    
-    const entry = { url, label, source, sizeMB, orientation, resolution, lastUsed: new Date().toISOString(), cached: fs.existsSync(videoPath) };
-    
-    if (existing >= 0) {
-      videoHistory[existing] = entry;
-    } else {
-      videoHistory.unshift(entry);
-    }
-    // Keep last 20
+    const entry = { url, label, source, sizeMB, orientation, resolution, lastUsed: new Date().toISOString() };
+    if (existing >= 0) { videoHistory[existing] = entry; } else { videoHistory.unshift(entry); }
     if (videoHistory.length > 20) videoHistory = videoHistory.slice(0, 20);
-    // Sort by most recent
     videoHistory.sort((a, b) => new Date(b.lastUsed) - new Date(a.lastUsed));
     saveVideoHistory();
   } catch(e) { log('History save error: ' + e.message); }
@@ -102,15 +85,12 @@ function addToVideoHistory(url, videoPath, extraLabel) {
 
 function log(msg) {
   const entry = '[' + new Date().toISOString() + '] ' + msg;
-  streamLogs.push(entry);
-  if (streamLogs.length > 500) streamLogs.shift();
-  console.log(entry);
+  streamLogs.push(entry); if (streamLogs.length > 500) streamLogs.shift(); console.log(entry);
 }
 
 function auth(req, res, next) {
   const key = req.headers['x-admin-key'] || req.query.key;
-  if (key !== ADMIN_KEY) return res.status(401).json({ error: 'Unauthorized' });
-  next();
+  if (key !== ADMIN_KEY) return res.status(401).json({ error: 'Unauthorized' }); next();
 }
 
 function downloadOverlayLogo() {
@@ -125,8 +105,7 @@ function downloadOverlayLogo() {
       proto.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) { doGet(res.headers.location, rc + 1); return; }
         if (res.statusCode !== 200) { log('Logo download failed: ' + res.statusCode); resolve(false); return; }
-        res.pipe(file);
-        file.on('finish', () => { file.close(); log('Overlay logo: ready'); resolve(true); });
+        res.pipe(file); file.on('finish', () => { file.close(); log('Overlay logo: ready'); resolve(true); });
       }).on('error', (e) => { log('Logo error: ' + e.message); resolve(false); });
     }
     doGet(OVERLAY_LOGO_URL, 0);
@@ -134,11 +113,8 @@ function downloadOverlayLogo() {
 }
 
 function extractDriveFileId(url) {
-  let match = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
-  if (match) return match[1];
-  match = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-  if (match) return match[1];
-  return null;
+  let match = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/); if (match) return match[1];
+  match = url.match(/[?&]id=([a-zA-Z0-9_-]+)/); if (match) return match[1]; return null;
 }
 
 function isYouTubeUrl(url) { return /(?:youtube\.com|youtu\.be)/.test(url); }
@@ -146,8 +122,7 @@ function isYouTubeUrl(url) { return /(?:youtube\.com|youtu\.be)/.test(url); }
 function getVideoInfo(videoPath) {
   try {
     const result = execSync('ffprobe -v quiet -print_format json -show_streams -show_format "' + videoPath + '"', { encoding: 'utf8' });
-    const data = JSON.parse(result);
-    const vs = data.streams.find(s => s.codec_type === 'video');
+    const data = JSON.parse(result); const vs = data.streams.find(s => s.codec_type === 'video');
     return vs ? { width: vs.width, height: vs.height, codec: vs.codec_name, fps: eval(vs.r_frame_rate) } : null;
   } catch (e) { return null; }
 }
@@ -159,57 +134,38 @@ function downloadFromDrive(fileId, destPath) {
     try {
       const url1 = 'https://drive.usercontent.google.com/download?id=' + fileId + '&export=download';
       execSync('curl -s -L -c "' + cookieJar + '" -o "' + destPath + '" "' + url1 + '"', { timeout: 30000 });
-      
       const stats1 = fs.statSync(destPath);
       if (stats1.size < 5000000) {
         const content = fs.readFileSync(destPath, 'utf8');
         if (content.includes('confirm=') || content.includes('virus') || content.includes('</html>') || content.includes('download_warning')) {
-          log('Drive: large file confirmation required, retrying with confirm...');
-          setProgress('downloading', 'Arquivo grande detectado, confirmando download...', streamProgress.video, streamProgress.total, 30);
-          const confirmMatch = content.match(/confirm=([a-zA-Z0-9_-]+)/);
-          const confirmToken = confirmMatch ? confirmMatch[1] : 't';
+          log('Drive: large file, retrying with confirm...');
+          setProgress('downloading', 'Arquivo grande, confirmando...', _lastGlobalPct + 5);
+          const confirmMatch = content.match(/confirm=([a-zA-Z0-9_-]+)/); const confirmToken = confirmMatch ? confirmMatch[1] : 't';
           const url2 = 'https://drive.usercontent.google.com/download?id=' + fileId + '&export=download&confirm=' + confirmToken;
           fs.unlinkSync(destPath);
           execSync('curl -s -L -b "' + cookieJar + '" -c "' + cookieJar + '" -o "' + destPath + '" "' + url2 + '"', { timeout: 600000, maxBuffer: 10 * 1024 * 1024 });
-          
           const stats2 = fs.statSync(destPath);
           if (stats2.size < 5000000) {
             const content2 = fs.readFileSync(destPath, 'utf8');
             if (content2.includes('</html>')) {
-              log('Drive: confirm token failed, trying direct format...');
-              setProgress('downloading', 'Tentativa alternativa de download...', streamProgress.video, streamProgress.total, 50);
+              log('Drive: confirm failed, trying API...');
+              setProgress('downloading', 'Tentativa alternativa...', _lastGlobalPct + 2);
               fs.unlinkSync(destPath);
               const url3 = 'https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media&key=AIzaSyC1qbk75NzWBvSaDh6KnUvjbjV0y36XUY0';
               execSync('curl -s -L -o "' + destPath + '" "' + url3 + '"', { timeout: 600000 });
               const stats3 = fs.statSync(destPath);
-              if (stats3.size < 5000000) {
-                fs.unlinkSync(destPath);
-                reject(new Error('Drive download failed. File may not be publicly shared.'));
-                return;
-              }
+              if (stats3.size < 5000000) { fs.unlinkSync(destPath); reject(new Error('Drive download failed. File may not be publicly shared.')); return; }
             }
           }
         }
       }
-      
       try { fs.unlinkSync(cookieJar); } catch(e) {}
       const finalStats = fs.statSync(destPath);
       log('Download complete: ' + Math.round(finalStats.size / 1024 / 1024) + 'MB');
-      
-      if (finalStats.size < 100000) {
-        try {
-          const c = fs.readFileSync(destPath, 'utf8');
-          if (c.includes('</html>') || c.includes('Sign in')) {
-            fs.unlinkSync(destPath);
-            reject(new Error('Drive blocked download. Make sure sharing is "Anyone with the link".'));
-            return;
-          }
-        } catch(e) {}
-      }
+      if (finalStats.size < 100000) { try { const c = fs.readFileSync(destPath, 'utf8'); if (c.includes('</html>') || c.includes('Sign in')) { fs.unlinkSync(destPath); reject(new Error('Drive blocked. Set sharing to "Anyone with the link".')); return; } } catch(e) {} }
       resolve(destPath);
     } catch (e) {
-      try { fs.unlinkSync(cookieJar); } catch(ex) {}
-      try { fs.unlinkSync(destPath); } catch(ex) {}
+      try { fs.unlinkSync(cookieJar); } catch(ex) {} try { fs.unlinkSync(destPath); } catch(ex) {}
       reject(new Error('Drive download error: ' + e.message));
     }
   });
@@ -221,19 +177,10 @@ function downloadFromYouTube(url, destPath) {
     const ytdlp = spawn('yt-dlp', ['-f','bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best','--merge-output-format','mp4','-o',destPath,'--no-playlist','--no-warnings',url]);
     ytdlp.stdout.on('data', (d) => {
       const l = d.toString().trim();
-      if (l.includes('%')) {
-        log('[yt-dlp] ' + l);
-        const pMatch = l.match(/([\d.]+)%/);
-        if (pMatch) {
-          setProgress('downloading', 'YouTube: ' + pMatch[1] + '% baixado', streamProgress.video, streamProgress.total, Math.round(parseFloat(pMatch[1])));
-        }
-      }
+      if (l.includes('%')) { log('[yt-dlp] ' + l); const pMatch = l.match(/([\d.]+)%/); if (pMatch) { const local = parseFloat(pMatch[1]); setProgress('downloading', 'YouTube: ' + Math.round(local) + '%', 5 + Math.round(local * 0.75)); } }
     });
     ytdlp.stderr.on('data', (d) => { const l=d.toString().trim(); if(l) log('[yt-dlp] '+l); });
-    ytdlp.on('close', (code) => {
-      if (code===0 && fs.existsSync(destPath)) { log('YouTube download: '+Math.round(fs.statSync(destPath).size/1024/1024)+'MB'); resolve(destPath); }
-      else reject(new Error('yt-dlp failed (code '+code+')'));
-    });
+    ytdlp.on('close', (code) => { if (code===0 && fs.existsSync(destPath)) { log('YouTube download: '+Math.round(fs.statSync(destPath).size/1024/1024)+'MB'); resolve(destPath); } else reject(new Error('yt-dlp failed (code '+code+')')); });
     ytdlp.on('error', reject);
   });
 }
@@ -243,20 +190,18 @@ function transcribeVideo(videoPath) {
     if (!GROQ_API_KEY) { log('No GROQ_API_KEY, skipping transcription'); resolve(false); return; }
     const audioPath = path.join(VIDEOS_DIR, 'temp_audio.mp3');
     try {
-      setProgress('transcribing', 'Extraindo audio do video...', streamProgress.video, streamProgress.total, 10);
+      setProgress('transcribing', 'Extraindo audio...', 82);
       log('Extracting audio for transcription...');
       execSync('ffmpeg -i "' + videoPath + '" -vn -acodec libmp3lame -q:a 4 -y "' + audioPath + '"', { timeout: 120000 });
-      const stats = fs.statSync(audioPath);
-      log('Audio extracted: ' + Math.round(stats.size/1024/1024) + 'MB');
+      const stats = fs.statSync(audioPath); log('Audio extracted: ' + Math.round(stats.size/1024/1024) + 'MB');
       if (stats.size > 25 * 1024 * 1024) { execSync('ffmpeg -i "' + audioPath + '" -t 1500 -y "' + audioPath + '.tmp.mp3"', { timeout: 60000 }); fs.renameSync(audioPath + '.tmp.mp3', audioPath); }
-      setProgress('transcribing', 'Enviando para Whisper...', streamProgress.video, streamProgress.total, 40);
+      setProgress('transcribing', 'Gerando legendas via Whisper...', 86);
       log('Sending to Groq Whisper...');
       const curlResult = execSync('curl -s -X POST "https://api.groq.com/openai/v1/audio/transcriptions" -H "Authorization: Bearer ' + GROQ_API_KEY + '" -F "file=@' + audioPath + '" -F "model=whisper-large-v3" -F "response_format=srt" -F "language=pt"', { encoding: 'utf8', timeout: 300000, maxBuffer: 50 * 1024 * 1024 });
       if (curlResult && curlResult.includes('-->')) {
         fs.writeFileSync(SUBTITLE_PATH, curlResult.trim());
-        setProgress('transcribing', 'Legendas geradas!', streamProgress.video, streamProgress.total, 100);
-        log('Transcription complete: ' + curlResult.trim().split('\n').length + ' lines SRT');
-        resolve(true);
+        setProgress('transcribing', 'Legendas prontas!', 90);
+        log('Transcription complete: ' + curlResult.trim().split('\n').length + ' lines SRT'); resolve(true);
       } else { log('Transcription failed: ' + curlResult.substring(0, 200)); resolve(false); }
     } catch (e) { log('Transcription error: ' + e.message); resolve(false); }
     finally { try { fs.unlinkSync(audioPath); } catch(e) {} }
@@ -283,30 +228,22 @@ function getOverlayFilters() {
   return { filters, hasLogo };
 }
 
-function normalizeVideo(inputPath, useOverlay) {
+function normalizeForPlaylist(inputPath) {
   return new Promise((resolve, reject) => {
-    const hash = require('crypto').createHash('md5').update(inputPath + OVERLAY_NAME + (useOverlay?'1':'0') + currentTopTitle).digest('hex').slice(0,8);
+    const hash = require('crypto').createHash('md5').update(inputPath + 'playlist').digest('hex').slice(0,8);
     const outputPath = path.join(VIDEOS_DIR, 'norm_' + hash + '.mp4');
-    if (fs.existsSync(outputPath)) { log('Normalized cached: ' + outputPath); resolve(outputPath); return; }
-    const info = getVideoInfo(inputPath);
-    if (!info) { reject(new Error('Cannot read video info')); return; }
-    log('Normalizing: ' + info.width + 'x' + info.height + ' -> 1080x1920 30fps');
-    setProgress('normalizing', 'Processando video ' + streamProgress.video + '/' + streamProgress.total + ' (' + info.width + 'x' + info.height + ')...', streamProgress.video, streamProgress.total, 0);
-    const overlay = (useOverlay && info.width > info.height) ? getOverlayFilters() : null;
-    let filter; const inputs = ['-i', inputPath];
-    if (info.width > info.height) { filter = '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2'; }
-    else { filter = 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black'; }
-    if (overlay) { filter += ',' + overlay.filters.join(','); if (overlay.hasLogo) { inputs.push('-i', OVERLAY_LOGO_PATH); filter += '[prelogo];[1:v]scale=200:-1[logo];[prelogo][logo]overlay=W-w-40:H*0.177:format=auto'; } }
-    filter += ',fps=30';
-    const ff = spawn('ffmpeg', [...inputs, '-filter_complex', filter, '-c:v', 'libx264', '-preset', 'fast', '-b:v', '4500k', '-maxrate', '6000k', '-bufsize', '12000k', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2', '-y', outputPath]);
+    if (fs.existsSync(outputPath)) { log('Playlist norm cached: ' + outputPath); resolve(outputPath); return; }
+    const info = getVideoInfo(inputPath); if (!info) { reject(new Error('Cannot read video info')); return; }
+    log('Normalizing for playlist: ' + info.width + 'x' + info.height + ' -> 1080x1920 30fps');
+    let filter;
+    if (info.width > info.height) { filter = '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg];[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,fps=30'; }
+    else { filter = 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,fps=30'; }
+    const ff = spawn('ffmpeg', ['-i', inputPath, '-filter_complex', filter, '-c:v', 'libx264', '-preset', 'fast', '-b:v', '4500k', '-maxrate', '6000k', '-bufsize', '12000k', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2', '-y', outputPath]);
     let duration = 0;
     try { const pr = execSync('ffprobe -v quiet -show_entries format=duration -of csv=p=0 "' + inputPath + '"', { encoding: 'utf8' }); duration = parseFloat(pr.trim()) || 0; } catch(e) {}
     ff.stderr.on('data', (d) => {
       const l = d.toString().trim();
-      if (l.includes('frame=')) {
-        if (duration > 0) { const tm = l.match(/time=(\d+):(\d+):(\d+\.\d+)/); if (tm) { const s = parseInt(tm[1])*3600+parseInt(tm[2])*60+parseFloat(tm[3]); const p = Math.min(99,Math.round((s/duration)*100)); setProgress('normalizing','Processando video '+streamProgress.video+'/'+streamProgress.total+': '+p+'%',streamProgress.video,streamProgress.total,p); } }
-        if (Math.random() < 0.05) log('[normalize] '+l.substring(0,150));
-      }
+      if (l.includes('frame=') && duration > 0) { const tm = l.match(/time=(\d+):(\d+):(\d+\.\d+)/); if (tm) { const s = parseInt(tm[1])*3600+parseInt(tm[2])*60+parseFloat(tm[3]); const pct = Math.min(99,Math.round((s/duration)*100)); setProgress('normalizing','Processando: '+pct+'%',40+Math.round(pct*0.45)); } if (Math.random() < 0.05) log('[normalize] '+l.substring(0,150)); }
       if (l.includes('Error')||l.includes('error')) log('[normalize] '+l.substring(0,200));
     });
     ff.on('close', (code) => { if (code === 0 && fs.existsSync(outputPath)) { log('Normalized: '+Math.round(fs.statSync(outputPath).size/1024/1024)+'MB'); resolve(outputPath); } else reject(new Error('Normalize failed (code '+code+')')); });
@@ -320,50 +257,33 @@ async function resolveVideo(videoUrl) {
   if (isYouTubeUrl(url)) {
     const hash = require('crypto').createHash('md5').update(url).digest('hex').slice(0,12);
     videoPath = path.join(VIDEOS_DIR, 'yt_' + hash + '.mp4');
-    if (!fs.existsSync(videoPath)) {
-      setProgress('downloading', 'Baixando do YouTube...', streamProgress.video, streamProgress.total, 0);
-      await downloadFromYouTube(url, videoPath);
-    } else {
-      log('YouTube cached: ' + videoPath);
-      setProgress('downloading', 'Video do YouTube em cache!', streamProgress.video, streamProgress.total, 100);
-    }
+    if (!fs.existsSync(videoPath)) { setProgress('downloading', 'Baixando do YouTube...', 5); await downloadFromYouTube(url, videoPath); }
+    else { log('YouTube cached: ' + videoPath); setProgress('downloading', 'Video em cache!', 80); }
   } else {
     const fid = extractDriveFileId(url);
     if (fid) {
       videoPath = path.join(VIDEOS_DIR, fid + '.mp4');
-      if (fs.existsSync(videoPath)) {
-        const sz = fs.statSync(videoPath).size;
-        if (sz < 5000000) { try { const c = fs.readFileSync(videoPath, 'utf8'); if (c.includes('</html>')) { log('Cleaning corrupted cache: ' + videoPath); fs.unlinkSync(videoPath); } } catch(e) {} }
-      }
-      if (!fs.existsSync(videoPath)) {
-        setProgress('downloading', 'Baixando do Google Drive...', streamProgress.video, streamProgress.total, 10);
-        await downloadFromDrive(fid, videoPath);
-      } else {
-        log('Drive cached: ' + videoPath);
-        setProgress('downloading', 'Video do Drive em cache!', streamProgress.video, streamProgress.total, 100);
-      }
-    } else if (url.startsWith('http')) {
-      videoPath = path.join(VIDEOS_DIR, uuidv4() + '.mp4');
-      setProgress('downloading', 'Baixando video...', streamProgress.video, streamProgress.total, 0);
-      await downloadFromDrive(url, videoPath);
-    } else return null;
+      if (fs.existsSync(videoPath)) { const sz = fs.statSync(videoPath).size; if (sz < 5000000) { try { const c = fs.readFileSync(videoPath, 'utf8'); if (c.includes('</html>')) { log('Cleaning corrupted cache'); fs.unlinkSync(videoPath); } } catch(e) {} } }
+      if (!fs.existsSync(videoPath)) { setProgress('downloading', 'Baixando do Google Drive...', 5); await downloadFromDrive(fid, videoPath); setProgress('downloading', 'Download completo!', 80); }
+      else { log('Drive cached: ' + videoPath); setProgress('downloading', 'Video em cache!', 80); }
+    } else if (url.startsWith('http')) { videoPath = path.join(VIDEOS_DIR, uuidv4() + '.mp4'); setProgress('downloading', 'Baixando video...', 5); await downloadFromDrive(url, videoPath); }
+    else return null;
   }
-  // Save to history
-  addToVideoHistory(url, videoPath);
+  setTimeout(() => addToVideoHistory(url, videoPath), 100);
   return videoPath;
 }
 
-async function resolveAllVideos(urls, forPlaylist, useOverlay, autoSubs) {
-  const paths = [];
-  for (let i = 0; i < urls.length; i++) {
-    setProgress('downloading', 'Baixando video ' + (i+1) + '/' + urls.length + '...', i+1, urls.length, 0);
-    log('Video ' + (i+1) + '/' + urls.length + ': ' + urls[i].substring(0,80) + '...');
+async function resolveAllVideos(urls, forPlaylist, autoSubs) {
+  const paths = []; const totalVideos = urls.length;
+  for (let i = 0; i < totalVideos; i++) {
+    const basePercent = Math.round(i * (80 / totalVideos));
+    setProgress('downloading', 'Baixando video ' + (i+1) + '/' + totalVideos + '...', basePercent + 2);
+    log('Video ' + (i+1) + '/' + totalVideos + ': ' + urls[i].substring(0,80) + '...');
     let vp = await resolveVideo(urls[i]);
     if (!vp) throw new Error('Invalid URL: ' + urls[i]);
     try { execSync('ffprobe -v quiet -print_format json -show_format "' + vp + '"'); } catch(e) { throw new Error('Not a valid video: ' + urls[i]); }
-    setProgress('downloading', 'Video ' + (i+1) + ' baixado!', i+1, urls.length, 100);
     if (autoSubs && i === 0 && GROQ_API_KEY) { await transcribeVideo(vp); }
-    if ((forPlaylist && urls.length > 1) || (useOverlay && OVERLAY_NAME)) { vp = await normalizeVideo(vp, useOverlay); }
+    if (forPlaylist && totalVideos > 1) { vp = await normalizeForPlaylist(vp); }
     paths.push(vp);
   }
   return paths;
@@ -378,7 +298,6 @@ function startFFmpegConcat(concatFile, rtmpUrl, loop) {
 
 function startSingleFFmpeg(videoPath, rtmpUrl, loop, useOverlay) {
   const info = getVideoInfo(videoPath);
-  if (videoPath.includes('norm_')) { const la = loop ? ['-stream_loop', '-1'] : []; return spawn('ffmpeg', [...la, '-re', '-i', videoPath, '-c', 'copy', '-f', 'flv', rtmpUrl]); }
   const la = loop ? ['-stream_loop', '-1'] : [];
   const overlay = (useOverlay && info && info.width > info.height) ? getOverlayFilters() : null;
   if (info && info.width > info.height) {
@@ -401,36 +320,38 @@ app.get('/api/overlay', auth, (req, res) => { res.json({ name: OVERLAY_NAME, des
 app.get('/api/progress', auth, (req, res) => { res.json(streamProgress); });
 app.get('/api/video-history', auth, (req, res) => { res.json(videoHistory); });
 
-app.post('/api/stream/start', auth, async (req, res) => {
+app.post('/api/stream/start', auth, (req, res) => {
   if (currentStream) return res.status(400).json({ error: 'Stream already running. Stop it first.' });
+  if (isProcessing) return res.status(400).json({ error: 'Ja esta preparando. Aguarde.' });
   const { streamUrl, streamKey, videoUrl, videoUrls, loop, useOverlay, topTitle, autoSubs } = req.body;
   if (!streamKey) return res.status(400).json({ error: 'streamKey is required.' });
   let urls = [];
   if (videoUrls && Array.isArray(videoUrls) && videoUrls.length > 0) urls = videoUrls.filter(u => u && u.trim());
   else if (videoUrl) urls = [videoUrl];
   if (urls.length === 0) return res.status(400).json({ error: 'At least one video URL is required.' });
-  try {
-    currentTopTitle = (topTitle || '').trim();
-    setProgress('downloading', 'Iniciando preparacao de ' + urls.length + ' video(s)...', 0, urls.length, 0);
-    log('Preparing ' + urls.length + ' video(s)...' + (useOverlay && OVERLAY_NAME ? ' overlay: ' + OVERLAY_NAME : '') + (currentTopTitle ? ' title: ' + currentTopTitle : '') + (autoSubs ? ' auto-subs: on' : ''));
-    const videoPaths = await resolveAllVideos(urls, true, !!useOverlay, !!autoSubs);
-    setProgress('starting', 'Conectando ao servidor de streaming...', urls.length, urls.length, 90);
-    const baseUrl = streamUrl && streamUrl.trim() ? streamUrl.trim().replace(/\/$/,'') : 'rtmps://live-upload.instagram.com:443/rtmp';
-    const rtmpUrl = baseUrl + '/' + streamKey;
-    let ffmpeg, concatFile = null;
-    if (videoPaths.length === 1) { ffmpeg = startSingleFFmpeg(videoPaths[0], rtmpUrl, !!loop, !!useOverlay); }
-    else { concatFile = writeConcatFile(videoPaths); ffmpeg = startFFmpegConcat(concatFile, rtmpUrl, !!loop); }
-    log('Stream starting | Loop: ' + (loop?'yes':'no') + ' | Overlay: ' + (useOverlay && OVERLAY_NAME ? OVERLAY_NAME : 'off'));
-    const streamId = uuidv4().slice(0, 8);
-    currentStream = { id: streamId, process: ffmpeg, startedAt: new Date().toISOString(), videoUrls: urls, videoPaths, loop: !!loop, useOverlay: !!useOverlay, rtmpUrl, concatFile, streamUrl: baseUrl, streamKey };
-    attachFFmpegHandlers(ffmpeg);
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    if (currentStream) {
-      setProgress('live', 'Ao vivo!', urls.length, urls.length, 100);
-      setTimeout(resetProgress, 5000);
-      res.json({ success: true, streamId, videos: urls.length, overlay: (useOverlay && OVERLAY_NAME) ? OVERLAY_NAME : 'off', message: 'Stream started!' });
-    } else { resetProgress(); res.status(500).json({ error: 'Stream failed. Check logs.' }); }
-  } catch (err) { log('Error: ' + err.message); resetProgress(); currentStream = null; res.status(500).json({ error: err.message }); }
+  isProcessing = true; currentTopTitle = (topTitle || '').trim();
+  resetProgress(); setProgress('downloading', 'Preparando ' + urls.length + ' video(s)...', 1);
+  log('Preparing ' + urls.length + ' video(s)...' + (useOverlay && OVERLAY_NAME ? ' overlay: ' + OVERLAY_NAME : '') + (currentTopTitle ? ' title: ' + currentTopTitle : '') + (autoSubs ? ' auto-subs: on' : ''));
+  res.json({ success: true, status: 'processing', message: 'Preparando videos... acompanhe pela barra de progresso.' });
+  (async () => {
+    try {
+      const videoPaths = await resolveAllVideos(urls, true, !!autoSubs);
+      setProgress('starting', 'Conectando ao servidor...', 92);
+      const baseUrl = streamUrl && streamUrl.trim() ? streamUrl.trim().replace(/\/$/,'') : 'rtmps://live-upload.instagram.com:443/rtmp';
+      const rtmpUrl = baseUrl + '/' + streamKey;
+      let ffmpeg, concatFile = null;
+      if (videoPaths.length === 1) { ffmpeg = startSingleFFmpeg(videoPaths[0], rtmpUrl, !!loop, !!useOverlay); }
+      else { concatFile = writeConcatFile(videoPaths); ffmpeg = startFFmpegConcat(concatFile, rtmpUrl, !!loop); }
+      log('Stream starting | Loop: ' + (loop?'yes':'no') + ' | Overlay: ' + (useOverlay && OVERLAY_NAME ? OVERLAY_NAME : 'off'));
+      const streamId = uuidv4().slice(0, 8);
+      currentStream = { id: streamId, process: ffmpeg, startedAt: new Date().toISOString(), videoUrls: urls, videoPaths, loop: !!loop, useOverlay: !!useOverlay, rtmpUrl, concatFile, streamUrl: baseUrl, streamKey };
+      attachFFmpegHandlers(ffmpeg);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      if (currentStream) { setProgress('live', 'Ao vivo!', 100); log('Stream live!'); setTimeout(resetProgress, 5000); }
+      else { log('Stream failed to start'); resetProgress(); }
+    } catch (err) { log('Error: ' + err.message); resetProgress(); currentStream = null; }
+    finally { isProcessing = false; }
+  })();
 });
 
 app.post('/api/stream/swap', auth, async (req, res) => {
@@ -438,9 +359,7 @@ app.post('/api/stream/swap', auth, async (req, res) => {
   const { videoUrl, videoUrls } = req.body;
   let urls = []; if (videoUrls && Array.isArray(videoUrls) && videoUrls.length > 0) urls = videoUrls.filter(u => u && u.trim()); else if (videoUrl) urls = [videoUrl];
   if (urls.length === 0) return res.status(400).json({ error: 'Video URL required.' });
-  try {
-    setProgress('downloading', 'Preparando swap: ' + urls.length + ' video(s)...', 0, urls.length, 0);
-    const np = await resolveAllVideos(urls, true, currentStream.useOverlay, false);
+  try { setProgress('downloading', 'Preparando swap...', 5); const np = await resolveAllVideos(urls, true, false);
     if (currentStream.concatFile) { fs.writeFileSync(currentStream.concatFile, np.map(p => "file '"+p+"'").join('\n')); currentStream.videoUrls = urls; currentStream.videoPaths = np; resetProgress(); res.json({ success: true, message: 'Playlist updated.' }); }
     else { await doImmediateSwap(urls, np); resetProgress(); res.json({ success: true, message: 'Video swapped!' }); }
   } catch (err) { resetProgress(); res.status(500).json({ error: err.message }); }
@@ -451,17 +370,14 @@ app.post('/api/stream/swap-now', auth, async (req, res) => {
   const { videoUrl, videoUrls } = req.body;
   let urls = []; if (videoUrls && Array.isArray(videoUrls) && videoUrls.length > 0) urls = videoUrls.filter(u => u && u.trim()); else if (videoUrl) urls = [videoUrl];
   if (urls.length === 0) return res.status(400).json({ error: 'Video URL required.' });
-  try {
-    setProgress('downloading', 'Preparando swap imediato...', 0, urls.length, 0);
-    const np = await resolveAllVideos(urls, true, currentStream.useOverlay, false);
-    await doImmediateSwap(urls, np); resetProgress();
-    res.json({ success: true, message: 'Video swapped!' });
+  try { setProgress('downloading', 'Preparando swap...', 5); const np = await resolveAllVideos(urls, true, false);
+    await doImmediateSwap(urls, np); resetProgress(); res.json({ success: true, message: 'Video swapped!' });
   } catch (err) { resetProgress(); res.status(500).json({ error: err.message }); }
 });
 
 async function doImmediateSwap(urls, newPaths) {
   const { rtmpUrl, loop } = currentStream;
-  setProgress('starting', 'Reconectando stream...', urls.length, urls.length, 50);
+  setProgress('starting', 'Reconectando...', 90);
   currentStream.process.removeAllListeners('close'); currentStream.process.kill('SIGTERM');
   await new Promise(r => setTimeout(r, 1000));
   let ffmpeg, concatFile = null;
@@ -476,12 +392,12 @@ app.post('/api/stream/stop', auth, (req, res) => {
   if (!currentStream) return res.json({ message: 'No stream running.' });
   currentStream.process.kill('SIGTERM');
   setTimeout(() => { if (currentStream) { currentStream.process.kill('SIGKILL'); currentStream = null; } }, 5000);
-  resetProgress(); res.json({ success: true, message: 'Stream stopped.' });
+  resetProgress(); isProcessing = false; res.json({ success: true, message: 'Stream stopped.' });
 });
 
 app.get('/api/stream/status', auth, (req, res) => {
-  if (!currentStream) return res.json({ streaming: false });
-  res.json({ streaming: true, id: currentStream.id, startedAt: currentStream.startedAt, videoUrls: currentStream.videoUrls, loop: currentStream.loop, overlay: OVERLAY_NAME || 'off', uptime: Math.round((Date.now() - new Date(currentStream.startedAt).getTime()) / 1000) });
+  if (!currentStream) return res.json({ streaming: false, processing: isProcessing });
+  res.json({ streaming: true, processing: false, id: currentStream.id, startedAt: currentStream.startedAt, videoUrls: currentStream.videoUrls, loop: currentStream.loop, overlay: OVERLAY_NAME || 'off', uptime: Math.round((Date.now() - new Date(currentStream.startedAt).getTime()) / 1000) });
 });
 
 app.get('/api/logs', auth, (req, res) => { res.json({ logs: streamLogs.slice(-100) }); });
@@ -495,11 +411,10 @@ app.post('/api/cache/clear', auth, (req, res) => {
 app.post('/api/subtitles', auth, (req, res) => {
   const { srt } = req.body;
   if (!srt || !srt.trim()) { if (fs.existsSync(SUBTITLE_PATH)) fs.unlinkSync(SUBTITLE_PATH); return res.json({ success: true, message: 'Subtitles removed.' }); }
-  fs.writeFileSync(SUBTITLE_PATH, srt.trim());
-  res.json({ success: true, message: 'Subtitles saved.' });
+  fs.writeFileSync(SUBTITLE_PATH, srt.trim()); res.json({ success: true, message: 'Subtitles saved.' });
 });
 
-app.get('/health', (req, res) => { res.json({ status: 'ok', streaming: !!currentStream, overlay: OVERLAY_NAME || 'off' }); });
+app.get('/health', (req, res) => { res.json({ status: 'ok', streaming: !!currentStream, processing: isProcessing, overlay: OVERLAY_NAME || 'off' }); });
 
 (async () => {
   loadVideoHistory();
