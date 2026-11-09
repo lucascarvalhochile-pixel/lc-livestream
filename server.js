@@ -16,6 +16,7 @@ const VIDEOS_DIR = '/tmp/videos';
 const DATA_DIR = fs.existsSync('/data') ? '/data' : VIDEOS_DIR;
 const OVERLAY_NAME = process.env.OVERLAY_NAME || '';
 const OVERLAY_RAW_PATH = path.join(DATA_DIR, 'overlay_raw.img');
+const OVERLAY_SCALED_PATH = path.join(DATA_DIR, 'overlay_scaled.png');
 const OVERLAY_TOP_PATH = path.join(DATA_DIR, 'overlay_top.jpg');
 const OVERLAY_BOT_PATH = path.join(DATA_DIR, 'overlay_bottom.jpg');
 const SUBTITLE_PATH = path.join(VIDEOS_DIR, 'current_subtitles.srt');
@@ -39,7 +40,7 @@ function saveStreamDefaults(obj) {
   if (obj.overlayUrl !== undefined) {
     const oldUrl = savedDefaults.overlayUrl;
     savedDefaults.overlayUrl = obj.overlayUrl;
-    if (obj.overlayUrl !== oldUrl) { try{fs.unlinkSync(OVERLAY_RAW_PATH);}catch(e){} try{fs.unlinkSync(OVERLAY_TOP_PATH);}catch(e){} try{fs.unlinkSync(OVERLAY_BOT_PATH);}catch(e){} overlayReady = false; log('Overlay URL changed, cache cleared'); }
+    if (obj.overlayUrl !== oldUrl) { try{fs.unlinkSync(OVERLAY_RAW_PATH);}catch(e){} try{fs.unlinkSync(OVERLAY_SCALED_PATH);}catch(e){} try{fs.unlinkSync(OVERLAY_TOP_PATH);}catch(e){} try{fs.unlinkSync(OVERLAY_BOT_PATH);}catch(e){} overlayReady = false; log('Overlay URL changed, cache cleared'); }
   }
   try { fs.writeFileSync(STREAM_DEFAULTS_PATH, JSON.stringify(savedDefaults, null, 2)); } catch(e) { log('Failed to save defaults: ' + e.message); }
 }
@@ -108,19 +109,33 @@ function downloadOverlayFromUrl(url) {
   } catch(e) { log('Overlay download error: ' + e.message); try { fs.unlinkSync(cj); } catch(ex) {} return false; }
 }
 
-// Split overlay image into top and bottom bands (crop out the transparent/green middle)
+// Scale overlay to exactly 1080x1920, then split into top and bottom bands
 function splitOverlayBands() {
   if (fs.existsSync(OVERLAY_TOP_PATH) && fs.existsSync(OVERLAY_BOT_PATH)) { log('Overlay bands: cached'); return true; }
   if (!fs.existsSync(OVERLAY_RAW_PATH)) return false;
   try {
     log('Splitting overlay into top+bottom bands...');
+    // First: detect original size
+    const info = getVideoInfo(OVERLAY_RAW_PATH);
+    const origW = info ? info.width : 0;
+    const origH = info ? info.height : 0;
+    log('Overlay original: ' + origW + 'x' + origH);
+
+    // Scale to exactly 1080x1920 first (the Canva overlay may not be exact)
+    execSync('ffmpeg -i "' + OVERLAY_RAW_PATH + '" -vf "scale=1080:1920:flags=lanczos" -y "' + OVERLAY_SCALED_PATH + '"', { timeout: 15000 });
+    log('Overlay scaled to 1080x1920');
+
     // Crop top band: 1080x600 from y=0
-    execSync('ffmpeg -i "' + OVERLAY_RAW_PATH + '" -filter_complex "crop=1080:600:0:0" -update 1 -y "' + OVERLAY_TOP_PATH + '"', { timeout: 15000 });
-    // Crop bottom band: 1080x765 from y=1155
-    execSync('ffmpeg -i "' + OVERLAY_RAW_PATH + '" -filter_complex "crop=1080:765:0:1155" -update 1 -y "' + OVERLAY_BOT_PATH + '"', { timeout: 15000 });
+    execSync('ffmpeg -i "' + OVERLAY_SCALED_PATH + '" -vf "crop=1080:' + overlayTopH + ':0:0" -update 1 -y "' + OVERLAY_TOP_PATH + '"', { timeout: 15000 });
+    // Crop bottom band: 1080x(1920-botY) from y=botY
+    const botH = 1920 - overlayBotY;
+    execSync('ffmpeg -i "' + OVERLAY_SCALED_PATH + '" -vf "crop=1080:' + botH + ':0:' + overlayBotY + '" -update 1 -y "' + OVERLAY_BOT_PATH + '"', { timeout: 15000 });
+
     const ts = fs.statSync(OVERLAY_TOP_PATH).size;
     const bs = fs.statSync(OVERLAY_BOT_PATH).size;
-    log('Overlay bands: top ' + Math.round(ts/1024) + 'KB, bottom ' + Math.round(bs/1024) + 'KB');
+    log('Overlay bands: top ' + Math.round(ts/1024) + 'KB (' + overlayTopH + 'px), bottom ' + Math.round(bs/1024) + 'KB (' + botH + 'px from y=' + overlayBotY + ')');
+    // Cleanup scaled intermediate
+    try { fs.unlinkSync(OVERLAY_SCALED_PATH); } catch(e) {}
     return ts > 1000 && bs > 1000;
   } catch(e) { log('Overlay split error: ' + e.message); return false; }
 }
@@ -191,7 +206,7 @@ function buildOverlayFilter(useOverlay) {
   const inputs = []; let idx = 1;
   if (useOverlay && overlayReady && fs.existsSync(OVERLAY_TOP_PATH) && fs.existsSync(OVERLAY_BOT_PATH)) {
     inputs.push('-i', OVERLAY_TOP_PATH, '-i', OVERLAY_BOT_PATH);
-    // Paste top band at y=0, bottom band at y=1155
+    // Paste top band at y=0, bottom band at y=botY
     filter += '[base];[base][' + idx + ':v]overlay=0:0[t];[t][' + (idx+1) + ':v]overlay=0:' + overlayBotY;
     idx += 2;
   }
