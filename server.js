@@ -33,7 +33,7 @@ if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
 const PREENCODED_DIR = path.join(VIDEOS_DIR, 'preencoded');
 if (!fs.existsSync(PREENCODED_DIR)) fs.mkdirSync(PREENCODED_DIR, { recursive: true });
 let preEncodeStatus = { active: false, progress: '', videoUrl: '' };
-function getPreencodedPath(videoUrl, mode) { const key = mode === 'zoom' ? videoUrl + '_zoom' : videoUrl + (savedDefaults.overlayUrl || ''); const hash = require('crypto').createHash('md5').update(key).digest('hex').slice(0,12); return path.join(PREENCODED_DIR, 'pre_' + hash + '.mp4'); }
+function getPreencodedPath(videoUrl, mode) { const key = mode === 'zoom' ? videoUrl + '_zoom' : mode === 'passthrough' ? videoUrl + '_passthrough' : videoUrl + (savedDefaults.overlayUrl || ''); const hash = require('crypto').createHash('md5').update(key).digest('hex').slice(0,12); return path.join(PREENCODED_DIR, 'pre_' + hash + '.mp4'); }
 
 try { fs.unlinkSync(OVERLAY_TOP_PATH); } catch(e) {}
 try { fs.unlinkSync(OVERLAY_BOT_PATH); } catch(e) {}
@@ -227,13 +227,14 @@ app.post('/api/overlay-config',auth,(req,res)=>{
 app.post('/api/pre-encode',auth,async(req,res)=>{
   if(preEncodeStatus.active) return res.status(400).json({error:'Pre-encode already running',progress:preEncodeStatus.progress});
   const{videoUrl}=req.body; const mode=req.body.mode||'overlay'; if(!videoUrl) return res.status(400).json({error:'videoUrl required'});
-  if(mode!=='zoom'){const ovlUrl=savedDefaults.overlayUrl||process.env.OVERLAY_URL||''; if(!ovlUrl) return res.status(400).json({error:'No overlay URL configured'});}
+  if(mode!=='zoom'&&mode!=='passthrough'){const ovlUrl=savedDefaults.overlayUrl||process.env.OVERLAY_URL||''; if(!ovlUrl) return res.status(400).json({error:'No overlay URL configured'});}
   res.json({success:true,message:'Pre-encoding started...'});
   preEncodeStatus={active:true,progress:'downloading',videoUrl};
   (async()=>{try{
     const vp=await resolveVideo(videoUrl);if(!vp){preEncodeStatus={active:false,progress:'failed: bad video URL',videoUrl};return;}
     
     if(mode==='zoom'){const outPath=getPreencodedPath(videoUrl,'zoom');if(fs.existsSync(outPath)){const sz=Math.round(fs.statSync(outPath).size/1024/1024);preEncodeStatus={active:false,progress:'done: '+sz+'MB',videoUrl};log('Pre-encode ZOOM: cached '+sz+'MB');return;}preEncodeStatus.progress='encoding zoom (scale+crop to 1080x1920)';log('Pre-encode ZOOM: starting FFmpeg to '+outPath);const ff=spawn('ffmpeg',['-y','-i',vp,'-vf','scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920','-c:v','libx264','-preset',FFPRESET,'-b:v','4500k','-maxrate','6000k','-bufsize','12000k','-r','30','-g','60','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-ar','44100','-ac','2',outPath]);ff.stderr.on('data',(d)=>{const l=d.toString().trim();if(l.includes('frame=')&&Math.random()<0.05){const m=l.match(/time=(\d+:\d+:\d+)/);if(m)preEncodeStatus.progress='zoom encoding: '+m[1];log('[pre-encode-zoom] '+l.substring(0,150));}});ff.on('close',(code)=>{if(code===0&&fs.existsSync(outPath)){const sz=Math.round(fs.statSync(outPath).size/1024/1024);log('Pre-encode ZOOM DONE: '+sz+'MB -> '+outPath);preEncodeStatus={active:false,progress:'done: '+sz+'MB',videoUrl};}else{log('Pre-encode ZOOM FAILED code='+code);preEncodeStatus={active:false,progress:'failed: ffmpeg code '+code,videoUrl};}});ff.on('error',(e)=>{log('Pre-encode ZOOM error: '+e.message);preEncodeStatus={active:false,progress:'failed: '+e.message,videoUrl};});return;}
+    if(mode==='passthrough'){const outPath=getPreencodedPath(videoUrl,'passthrough');if(fs.existsSync(outPath)){const sz=Math.round(fs.statSync(outPath).size/1024/1024);preEncodeStatus={active:false,progress:'done: '+sz+'MB',videoUrl};log('Pre-encode PASSTHROUGH: cached '+sz+'MB');return;}preEncodeStatus.progress='copying video (passthrough, no re-encoding)';log('Pre-encode PASSTHROUGH: copying to '+outPath);try{fs.copyFileSync(vp,outPath);const sz=Math.round(fs.statSync(outPath).size/1024/1024);log('Pre-encode PASSTHROUGH DONE: '+sz+'MB');preEncodeStatus={active:false,progress:'done: '+sz+'MB',videoUrl};}catch(e){log('PASSTHROUGH error: '+e.message);preEncodeStatus={active:false,progress:'failed: '+e.message,videoUrl};}return;}
     if(!fs.existsSync(OVERLAY_RAW_PATH)){if(!downloadOverlayFromUrl(ovlUrl)){preEncodeStatus={active:false,progress:'failed: overlay download',videoUrl};return;}}
     const ovlAlpha=path.join(VIDEOS_DIR,'overlay_alpha_gen.png');
     preEncodeStatus.progress='generating overlay alpha';
